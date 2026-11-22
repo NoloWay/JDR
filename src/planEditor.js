@@ -3,7 +3,7 @@ import { h, liveRender } from './dom.js'
 import { DOOR_LEVELS } from './rules.js'
 import {
   CELL, DECKS, SHAPE_TYPES, ICON_NAMES, ICON_SVG, iconOf, bbox, shapeAt, doorAt, cameraAt, shapePath, isRoomType, titleAnchor, autoTitleSize,
-  attachToWall, resolveItem, wallParam, wallSeg,
+  attachToWall, resolveItem, wallParam, wallSeg, markAt, markBox,
 } from './shipMap.js'
 
 // Éditeur du plan du Gaïa (MJ) : formes, portes, caméras. Toutes les modifications vont dans la carte
@@ -20,9 +20,9 @@ const iconSvg = (key) => {
   return box
 }
 /** Liste déroulante des logos (nom + aperçu, ordre alphabétique). auto = logo déduit du nom. */
-function iconPicker(value, auto, onPick) {
+function iconPicker(value, auto, onPick, withAuto = true) {
   const sorted = Object.entries(ICON_NAMES).sort(([, a], [, b]) => a.localeCompare(b, 'fr'))
-  const options = [['', 'Automatique (d’après le nom)', auto], ['none', 'Aucun', null], ...sorted.map(([k, l]) => [k, l, k])]
+  const options = [...(withAuto ? [['', 'Automatique (d’après le nom)', auto], ['none', 'Aucun', null]] : []), ...sorted.map(([k, l]) => [k, l, k])]
   const [, label, shown] = options.find(([k]) => k === value) ?? options[0]
   return h('details', { class: 'icon-pick' },
     h('summary', {}, iconSvg(shown), label),
@@ -40,7 +40,12 @@ const TOOLS = [
   ['door', '⊟', 'Porte : glisser le long du mur d’une pièce (elle y reste accrochée)'],
   ['window', '▤', 'Vitre : glisser le long du mur d’une pièce (elle y reste accrochée)'],
   ['camera', '◉', 'Caméra : cliquer pour la poser, puis l’orienter avec sa poignée'],
+  // Cartes seulement
+  ['line', '╱', 'Ligne / flèche : cliquer chaque point, puis Entrée ou double-clic pour finir (routes, rivières, trajectoires)'],
+  ['text', 'T', 'Texte : cliquer pour le poser'],
+  ['stamp', '★', 'Symbole : cliquer pour le poser (planète, danger, objectif…)'],
 ]
+const MAP_ONLY = ['line', 'text', 'stamp']
 
 /** Polygone régulier ; avec des côtés droits, orienté pour avoir des côtés horizontaux / verticaux. */
 function regular(cx, cy, r, n, start) {
@@ -75,13 +80,14 @@ function straighten(pts) {
  * Déplace le sommet i en p. Avec des côtés droits, les voisins suivent pour que les côtés
  * horizontaux / verticaux le restent (un coin de rectangle redimensionne le rectangle).
  */
-function moveVertex(pts, i, p, ortho) {
+function moveVertex(pts, i, p, ortho, closed = true) {
   const P = pts.map((q) => [...q])
   const old = P[i]
   const x = round(p.x)
   const y = round(p.y)
   if (ortho) {
-    for (const j of [(i - 1 + P.length) % P.length, (i + 1) % P.length]) {
+    const near = closed ? [(i - 1 + P.length) % P.length, (i + 1) % P.length] : [i - 1, i + 1].filter((j) => j >= 0 && j < P.length)
+    for (const j of near) {
       const q = P[j]
       if (Math.abs(q[0] - old[0]) < 0.5) q[0] = x // côté vertical : le voisin garde la même verticale
       else if (Math.abs(q[1] - old[1]) < 0.5) q[1] = y // côté horizontal
@@ -92,20 +98,21 @@ function moveVertex(pts, i, p, ortho) {
 }
 
 /** Déplace le côté i → i+1 de (dx, dy) ; avec des côtés droits, un côté droit ne bouge que perpendiculairement. */
-function moveEdge(pts, i, dx, dy, ortho) {
+function moveEdge(pts, i, dx, dy, ortho, closed = true) {
   const j = (i + 1) % pts.length
   const [a, b] = [pts[i], pts[j]]
   if (ortho && Math.abs(a[1] - b[1]) < 0.5) dx = 0 // côté horizontal : glisse en hauteur
   else if (ortho && Math.abs(a[0] - b[0]) < 0.5) dy = 0 // côté vertical : glisse en largeur
-  let P = moveVertex(pts, i, { x: a[0] + dx, y: a[1] + dy }, ortho)
-  P = moveVertex(P, j, { x: b[0] + dx, y: b[1] + dy }, ortho)
+  let P = moveVertex(pts, i, { x: a[0] + dx, y: a[1] + dy }, ortho, closed)
+  P = moveVertex(P, j, { x: b[0] + dx, y: b[1] + dy }, ortho, closed)
   return P
 }
 
 const LINKED = new Set(['hull', 'engine']) // même nom = même objet sur tous les étages
 const onWall = (it) => it.kind === 'door' || it.kind === 'window'
 /** Coque verrouillée par défaut : un glisser dessus déplace la vue, pas la coque. */
-const isLocked = (it) => it?.kind === 'shape' && (it.locked ?? it.type === 'hull')
+const isLocked = (it) => !!it && (it.locked ?? (it.kind === 'shape' && it.type === 'hull'))
+const atPoint = (it) => it.kind === 'camera' || it.kind === 'text' || it.kind === 'stamp' // posés en (x, y)
 const geomOf = (it) => (it.circle ? { circle: it.circle } : { pts: it.pts })
 const centerOf = (it) => { const b = bbox(it); return [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2] }
 /** Valeur v (ou v ± 1) la plus proche de ref : position sur un cercle, qui boucle. */
@@ -113,7 +120,7 @@ const nearTurn = (v, ref) => [v - 1, v, v + 1].reduce((a, b) => (Math.abs(b - re
 
 function translate(it, dx, dy) {
   if (onWall(it)) { const [a, b, c, d] = it.seg; return { ...it, seg: [a + dx, b + dy, c + dx, d + dy].map(round) } }
-  if (it.kind === 'camera') return { ...it, x: round(it.x + dx), y: round(it.y + dy) }
+  if (atPoint(it)) return { ...it, x: round(it.x + dx), y: round(it.y + dy) }
   if (it.circle) return { ...it, circle: { ...it.circle, x: round(it.circle.x + dx), y: round(it.circle.y + dy) } }
   return { ...it, pts: it.pts.map(([x, y]) => [round(x + dx), round(y + dy)]) }
 }
@@ -123,7 +130,7 @@ function translate(it, dx, dy) {
  */
 export function setupPlanEditor(ctx) {
   const generic = !!ctx.generic
-  const tools = generic ? TOOLS.filter(([k]) => k !== 'camera') : TOOLS
+  const tools = generic ? TOOLS.filter(([k]) => k !== 'camera') : TOOLS.filter(([k]) => !MAP_ONLY.includes(k))
   const NEW_NAME = generic ? 'Nouvelle zone' : 'Nouvelle pièce'
   let active = false
   let tool = 'select'
@@ -271,6 +278,15 @@ export function setupPlanEditor(ctx) {
     select(null)
   }
 
+  /** Case « Verrouillé » (cartes) : l'élément ne bouge plus, un glisser dessus déplace la vue. */
+  const lockBox = (it, patch) => generic && h('label', { class: 'check', title: 'Un glisser sur l’élément déplace la vue au lieu de l’élément' },
+    h('input', { type: 'checkbox', checked: isLocked(it), onchange: (e) => patch({ locked: e.target.checked }) }), ' Verrouillé (ne bouge pas)')
+  const colorInput = (value, onPick) => h('input', { type: 'color', value, onchange: (e) => onPick(e.target.value) })
+  const numInput = (value, min, max, onSet) => h('input', {
+    type: 'number', min, max, step: 1, value: Math.round(value),
+    onchange: (e) => onSet(Math.max(min, Math.min(max, Number(e.target.value) || min))),
+  })
+
   function buildProps() {
     if (multi()) {
       const target = h('select', {}, DECKS.filter((d) => d !== ctx.deck()).map((d) => h('option', { value: d }, `Étage ${d.replace('-', '−')}`)))
@@ -303,9 +319,16 @@ export function setupPlanEditor(ctx) {
         field('Nom', h('input', { value: it.name ?? '', onchange: (e) => patch({ name: e.target.value }) })),
         field('Numéro', h('input', { value: it.code ?? '', placeholder: 'ex. 12 ou 5.1', onchange: (e) => patch({ code: e.target.value.trim() }) })),
         generic
-          ? field('Couleur', h('div', { class: 'tool-row' },
-            h('input', { type: 'color', value: it.fill ?? '#14204a', onchange: (e) => patch({ fill: e.target.value }) }),
-            it.fill && h('button', { class: 'small', onclick: () => patch({ fill: null }) }, 'Par défaut')))
+          ? [field('Couleur', h('div', { class: 'tool-row' },
+            colorInput(it.fill ?? '#14204a', (fill) => patch({ fill })),
+            it.fill && h('button', { class: 'small', onclick: () => patch({ fill: null }) }, 'Par défaut'))),
+          field(`Opacité du fond (${Math.round((it.opacity ?? 1) * 100)} %)`, h('input', {
+            type: 'range', min: 0, max: 1, step: 0.05, value: it.opacity ?? 1, onchange: (e) => patch({ opacity: Number(e.target.value) }),
+          })),
+          field('Contour (épaisseur 0 = aucun)', h('div', { class: 'tool-row' },
+            colorInput(it.stroke ?? '#38e8ff', (stroke) => patch({ stroke })),
+            numInput(it.strokeWidth ?? CELL * 0.07, 0, 20, (strokeWidth) => patch({ strokeWidth })))),
+          lockBox(it, patch)]
           : field('Type', h('select', { onchange: (e) => patch({ type: e.target.value }) },
             Object.entries(SHAPE_TYPES).map(([k, l]) => h('option', { value: k, selected: k === it.type }, l)))),
         field('Logo', iconPicker(it.icon ?? '', iconOf({ ...it, icon: '' }), (icon) => patch({ icon }))),
@@ -339,6 +362,37 @@ export function setupPlanEditor(ctx) {
           (it.titleDx || it.titleDy) && h('button', { class: 'small', title: 'Remettre le titre en haut, au centre', onclick: () => patch({ titleDx: 0, titleDy: 0 }) }, 'Recentrer le titre')),
         h('p', { class: 'hint' }, 'Le losange jaune déplace le titre.'),
         copyRow, remove)
+    } else if (it.kind === 'text') {
+      add(props,
+        h('h4', {}, 'Texte'),
+        field('Texte (Entrée : nouvelle ligne)', h('textarea', { rows: 2, value: it.text ?? '', onchange: (e) => patch({ text: e.target.value }) })),
+        field('Taille et couleur', h('div', { class: 'tool-row' },
+          numInput(it.size ?? CELL * 0.6, 6, 400, (size) => patch({ size })),
+          colorInput(it.color ?? '#eaf6ff', (color) => patch({ color })))),
+        field(`Rotation (${Math.round(it.angle ?? 0)}°)`, h('input', {
+          type: 'range', min: -180, max: 180, step: 1, value: Math.round(it.angle ?? 0), oninput: (e) => patch({ angle: Number(e.target.value) }),
+        })),
+        lockBox(it, patch), remove)
+    } else if (it.kind === 'line') {
+      const pick = (key, value, options) => h('select', { onchange: (e) => patch({ [key]: e.target.value }) },
+        Object.entries(options).map(([k, l]) => h('option', { value: k, selected: k === value }, l)))
+      add(props,
+        h('h4', {}, 'Ligne'),
+        field('Couleur et épaisseur', h('div', { class: 'tool-row' },
+          colorInput(it.color ?? '#38e8ff', (color) => patch({ color })),
+          numInput(it.width ?? 4, 1, 40, (width) => patch({ width })))),
+        field('Trait', pick('dash', it.dash ?? 'solid', { solid: 'Plein', dash: 'Tirets', dot: 'Pointillés' })),
+        field('Flèche', pick('arrow', it.arrow ?? 'none', { none: 'Aucune', end: 'Au bout', both: 'Aux deux bouts' })),
+        h('p', { class: 'hint' }, 'Double-clic sur un point : le retirer ; sur le milieu d’un segment : ajouter un point.'),
+        lockBox(it, patch), remove)
+    } else if (it.kind === 'stamp') {
+      add(props,
+        h('h4', {}, 'Symbole'),
+        field('Symbole', iconPicker(it.icon, null, (icon) => patch({ icon }), false)),
+        field('Taille et couleur', h('div', { class: 'tool-row' },
+          numInput(it.size ?? CELL, 8, 600, (size) => patch({ size })),
+          colorInput(it.color ?? '#eaf6ff', (color) => patch({ color })))),
+        lockBox(it, patch), remove)
     } else if (it.kind === 'door' && generic) {
       add(props,
         h('h4', {}, 'Porte'),
@@ -395,7 +449,7 @@ export function setupPlanEditor(ctx) {
   function itemBox(it) {
     if (onWall(it)) { const [x1, y1, x2, y2] = it.seg; return { minX: Math.min(x1, x2), minY: Math.min(y1, y2), maxX: Math.max(x1, x2), maxY: Math.max(y1, y2) } }
     if (it.kind === 'camera') return { minX: it.x - CELL * 0.3, minY: it.y - CELL * 0.3, maxX: it.x + CELL * 0.3, maxY: it.y + CELL * 0.3 }
-    return bbox(it)
+    return markBox(it) ?? bbox(it)
   }
   function groupBox(items) {
     const boxes = items.map(([, it]) => itemBox(it))
@@ -415,7 +469,11 @@ export function setupPlanEditor(ctx) {
     const q = (v) => (free ? round(v) : Math.round(v / SNAP) * SNAP)
     const f = (x, y) => [q(o.x + (x - o.x) * sx), q(o.y + (y - o.y) * sy)]
     if (it.kind === 'door') { const [x1, y1, x2, y2] = it.seg; return { ...it, seg: [...f(x1, y1), ...f(x2, y2)] } }
-    if (it.kind === 'camera') { const [x, y] = f(it.x, it.y); return { ...it, x, y } }
+    if (atPoint(it)) {
+      const [x, y] = f(it.x, it.y)
+      return { ...it, x, y, ...(it.size ? { size: Math.max(6, round(it.size * Math.sqrt(sx * sy))) } : {}) }
+    }
+    if (it.kind === 'line') return { ...it, pts: it.pts.map(([x, y]) => f(x, y)) }
     const title = { titleDx: round((it.titleDx ?? 0) * sx), titleDy: round((it.titleDy ?? 0) * sy) }
     if (it.circle) {
       const [x, y] = f(it.circle.x, it.circle.y)
@@ -427,9 +485,17 @@ export function setupPlanEditor(ctx) {
   // ---------- Poignées ----------
   function handles(it) {
     if (onWall(it)) return [{ k: 'end', i: 0, x: it.seg[0], y: it.seg[1] }, { k: 'end', i: 1, x: it.seg[2], y: it.seg[3] }]
-    if (it.kind === 'camera') {
+    if (it.kind === 'camera' || it.kind === 'text') {
       const t = ((it.angle ?? 0) * Math.PI) / 180
-      return [{ k: 'rotate', x: it.x + Math.cos(t) * CELL * 0.9, y: it.y + Math.sin(t) * CELL * 0.9 }]
+      const d = it.kind === 'text' ? Math.max(CELL * 0.9, (markBox(it).maxX - it.x) + CELL * 0.5) : CELL * 0.9
+      return [{ k: 'rotate', x: it.x + Math.cos(t) * d, y: it.y + Math.sin(t) * d }]
+    }
+    if (it.kind === 'stamp') { const r = (it.size ?? CELL) / 2; return [{ k: 'size', x: it.x + r, y: it.y + r }] }
+    if (it.kind === 'line') {
+      return [
+        ...it.pts.map(([x, y], i) => ({ k: 'vertex', i, x, y })),
+        ...it.pts.slice(1).map(([x2, y2], i) => ({ k: 'edge', i, x: (it.pts[i][0] + x2) / 2, y: (it.pts[i][1] + y2) / 2 })),
+      ]
     }
     // Poignée du titre en premier : prioritaire si elle recouvre un sommet
     const title = isRoomType(it.type) ? [{ k: 'title', ...titleAnchor(it) }] : []
@@ -444,8 +510,10 @@ export function setupPlanEditor(ctx) {
   /** it : l'élément au début du glisser ; from : point de départ du glisser. */
   function applyHandle(it, hd, p, free, from) {
     if (hd.k === 'title') return { ...it, titleDx: round((it.titleDx ?? 0) + p.x - from.x), titleDy: round((it.titleDy ?? 0) + p.y - from.y) }
-    if (hd.k === 'vertex') return { ...it, pts: moveVertex(it.pts, hd.i, p, ortho) }
-    if (hd.k === 'edge') return { ...it, pts: moveEdge(it.pts, hd.i, p.x - from.x, p.y - from.y, ortho) }
+    const closed = it.kind !== 'line'
+    if (hd.k === 'vertex') return { ...it, pts: moveVertex(it.pts, hd.i, p, ortho, closed) }
+    if (hd.k === 'edge') return { ...it, pts: moveEdge(it.pts, hd.i, p.x - from.x, p.y - from.y, ortho, closed) }
+    if (hd.k === 'size') return { ...it, size: round(Math.max(8, 2 * Math.max(Math.abs(p.x - it.x), Math.abs(p.y - it.y)))) }
     if (hd.k === 'radius') return { ...it, circle: { ...it.circle, r: round(Math.max(CELL * 0.3, Math.hypot(p.x - it.circle.x, p.y - it.circle.y))) } }
     if (hd.k === 'rotate') {
       let a = (Math.atan2(p.y - it.y, p.x - it.x) * 180) / Math.PI
@@ -479,6 +547,8 @@ export function setupPlanEditor(ctx) {
     const base = { deck, kind: 'shape', type: 'room', code: '', name: NEW_NAME, icon: '', radius: 0.3, z }
     const r = Math.hypot(to.x - from.x, to.y - from.y)
     if (tool === 'camera') return { deck, kind: 'camera', x: from.x, y: from.y, angle: 0 }
+    if (tool === 'text') return { deck, kind: 'text', x: from.x, y: from.y, text: 'Texte', size: Math.round(CELL * 0.6), color: '#eaf6ff', angle: 0 }
+    if (tool === 'stamp') return { deck, kind: 'stamp', x: from.x, y: from.y, icon: 'star', size: CELL, color: '#ffd84a' }
     if (tool === 'door' || tool === 'window') {
       // Toujours sur le mur d'une pièce : pas de porte ni de vitre dans le vide
       const at = attachToWall(ctx.entries(), [from.x, from.y, to.x, to.y], CELL * 0.5)
@@ -516,6 +586,15 @@ export function setupPlanEditor(ctx) {
   const nearFirst = (p) => draft?.pts.length >= 3 && Math.hypot(p.x - draft.pts[0][0], p.y - draft.pts[0][1]) <= 10 / ctx.zoom()
 
   function closeDraft() {
+    if (tool === 'line' && draft?.pts.length >= 2) { // ligne ouverte : finie sans revenir au premier point
+      const id = crypto.randomUUID()
+      set(id, { deck: ctx.deck(), kind: 'line', pts: draft.pts, color: '#38e8ff', width: 4, dash: 'solid', arrow: 'none' })
+      tool = 'select'
+      renderTools()
+      draft = null
+      select(id)
+      return
+    }
     if (draft?.pts.length >= 3) {
       const id = crypto.randomUUID()
       set(id, { deck: ctx.deck(), kind: 'shape', type: 'room', code: '', name: NEW_NAME, icon: '', radius: 0.3, z: Math.max(0, ...shapesZ()) + 1, pts: draft.pts })
@@ -528,7 +607,7 @@ export function setupPlanEditor(ctx) {
 
   /** Survol (sans bouton) : aperçu du prochain côté de la polyligne. */
   function hover(w, e) {
-    if (!active || tool !== 'poly' || !draft) return
+    if (!active || (tool !== 'poly' && tool !== 'line') || !draft) return
     draft.cursor = snap(w, e.altKey)
     ctx.draw()
   }
@@ -536,8 +615,8 @@ export function setupPlanEditor(ctx) {
   function pointerDown(w, e) {
     if (!active || e.button !== 0) return false
     const p = snap(w, e.altKey)
-    if (tool === 'poly') {
-      if (nearFirst(w)) { closeDraft(); return true }
+    if (tool === 'poly' || tool === 'line') {
+      if (tool === 'poly' && nearFirst(w)) { closeDraft(); return true }
       draft ??= { pts: [], cursor: p }
       const q = nextPoint(p)
       const last = draft.pts.at(-1)
@@ -568,13 +647,14 @@ export function setupPlanEditor(ctx) {
       return true
     }
     const entries = ctx.entries()
-    const hit = doorAt(entries, w.x, w.y, Math.max(tol, CELL * 0.2), ['door', 'window']) ?? cameraAt(entries, w.x, w.y) ?? shapeAt(ctx.g, entries, w.x, w.y)
+    const hit = doorAt(entries, w.x, w.y, Math.max(tol, CELL * 0.2), ['door', 'window']) ?? markAt(entries, w.x, w.y, tol) ??
+      cameraAt(entries, w.x, w.y) ?? shapeAt(ctx.g, entries, w.x, w.y)
     if (e.ctrlKey) { // Ctrl+clic : ajoute / retire du groupe, sans déplacer
       if (hit) select(hit[0], true)
       return !!hit
     }
     if (!hit) { select(null); return false } // clic dans le vide : la vue se déplace
-    if (isLocked(hit[1])) { select(hit[0]); return false } // coque verrouillée : sélectionnée, mais la vue se déplace
+    if (isLocked(hit[1])) { select(hit[0]); return false } // élément verrouillé : sélectionné, mais la vue se déplace
     if (!group.has(hit[0])) select(hit[0])
     const one = !multi() && get(hit[0])
     if (one?.host) { action = { kind: 'slide', id: hit[0], start: one, from: p }; return true } // coulisse le long du mur
@@ -627,6 +707,7 @@ export function setupPlanEditor(ctx) {
         tool = 'select'
         renderTools()
         select(id)
+        if (it.kind === 'text') props.querySelector('textarea')?.select() // texte posé : on tape directement
       }
     }
     action = null
@@ -636,12 +717,12 @@ export function setupPlanEditor(ctx) {
 
   /** Double-clic : sur un sommet, le retire ; sur le milieu d'un côté, y ajoute un sommet. */
   function dblclick(w) {
-    if (active && tool === 'poly') return closeDraft()
+    if (active && (tool === 'poly' || tool === 'line')) return closeDraft()
     const it = active && selected && get(selected)
     if (!it?.pts) return
     const tol = 9 / ctx.zoom()
     const hd = handles(it).find((x) => Math.hypot(x.x - w.x, x.y - w.y) <= tol)
-    if (hd?.k === 'vertex' && it.pts.length > 3) set(selected, { ...it, pts: it.pts.filter((_, i) => i !== hd.i) })
+    if (hd?.k === 'vertex' && it.pts.length > (it.kind === 'line' ? 2 : 3)) set(selected, { ...it, pts: it.pts.filter((_, i) => i !== hd.i) })
     if (hd?.k === 'edge') set(selected, { ...it, pts: [...it.pts.slice(0, hd.i + 1), [round(hd.x), round(hd.y)], ...it.pts.slice(hd.i + 1)] })
   }
 
@@ -673,6 +754,8 @@ export function setupPlanEditor(ctx) {
     for (const [, x] of groupItems()) {
       if (x.kind === 'shape') g.stroke(shapePath(x))
       else if (onWall(x)) { g.beginPath(); g.moveTo(x.seg[0], x.seg[1]); g.lineTo(x.seg[2], x.seg[3]); g.stroke() }
+      else if (x.kind === 'line') { g.beginPath(); x.pts.forEach(([a, b], i) => (i ? g.lineTo(a, b) : g.moveTo(a, b))); g.stroke() }
+      else if (x.kind === 'text' || x.kind === 'stamp') { const b = markBox(x); g.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY) }
       else { g.beginPath(); g.arc(x.x, x.y, CELL * 0.3, 0, Math.PI * 2); g.stroke() }
     }
     g.setLineDash([])
@@ -687,7 +770,7 @@ export function setupPlanEditor(ctx) {
       g.strokeStyle = '#ff3dd8'
     }
     const it = !multi() && selected && get(selected)
-    if (it) {
+    if (it && !isLocked(it)) { // verrouillé : pas de poignées
       for (const hd of handles(it)) {
         if (hd.k === 'rotate') { g.beginPath(); g.moveTo(it.x, it.y); g.lineTo(hd.x, hd.y); g.stroke() }
         if (hd.k === 'title') { // titre : losange jaune
@@ -708,7 +791,7 @@ export function setupPlanEditor(ctx) {
     }
     if (draft?.pts.length) {
       const cur = nextPoint(draft.cursor)
-      const closing = nearFirst(draft.cursor)
+      const closing = tool === 'poly' && nearFirst(draft.cursor)
       g.strokeStyle = '#38e8ff'
       g.lineWidth = 2 * px
       g.beginPath()
@@ -718,10 +801,12 @@ export function setupPlanEditor(ctx) {
       g.beginPath(); g.moveTo(...draft.pts.at(-1)); g.lineTo(closing ? draft.pts[0][0] : cur.x, closing ? draft.pts[0][1] : cur.y); g.stroke()
       g.setLineDash([])
       for (const [x, y] of draft.pts) { g.fillStyle = '#eaf6ff'; g.fillRect(x - 3 * px, y - 3 * px, 6 * px, 6 * px) }
-      // Premier point : cercle d'accroche, plus visible quand le curseur peut refermer
-      g.strokeStyle = closing ? '#ff3dd8' : '#38e8ff'
-      g.lineWidth = (closing ? 3 : 1.5) * px
-      g.beginPath(); g.arc(draft.pts[0][0], draft.pts[0][1], 9 * px, 0, Math.PI * 2); g.stroke()
+      // Premier point : cercle d'accroche (polygone), plus visible quand le curseur peut refermer
+      if (tool === 'poly') {
+        g.strokeStyle = closing ? '#ff3dd8' : '#38e8ff'
+        g.lineWidth = (closing ? 3 : 1.5) * px
+        g.beginPath(); g.arc(draft.pts[0][0], draft.pts[0][1], 9 * px, 0, Math.PI * 2); g.stroke()
+      }
     }
     if (action?.kind === 'create') {
       const preview = created(action.from, action.to, action.free)

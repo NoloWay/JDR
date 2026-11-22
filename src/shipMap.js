@@ -9,7 +9,12 @@
 //   seg n'est qu'une copie : la position réelle est recalculée depuis la pièce (resolveEntries).
 //   caméra  : { deck, kind: 'camera', x, y, angle (degrés) }
 // Les cartes de l'onglet Carte utilisent les mêmes éléments (carte `mapPlan`, deck = id de la carte), sans
-// notion de vaisseau : couleur libre (fill), portes sans accréditation, pas de caméra.
+// notion de vaisseau : couleur libre (fill, opacity, stroke, strokeWidth), portes sans accréditation, pas de caméra,
+// plus des éléments propres aux cartes :
+//   texte   : { deck, kind: 'text', x, y, text, size, color, angle }
+//   ligne   : { deck, kind: 'line', pts (ouverte), color, width, dash ('solid' | 'dash' | 'dot'), arrow ('none' | 'end' | 'both') }
+//   symbole : { deck, kind: 'stamp', x, y, icon, size, color }
+// Tout élément peut porter locked: true (verrouillé : un glisser dessus déplace la vue).
 // Tant qu'un étage n'a jamais été modifié, on affiche sa version d'origine, générée depuis l'Excel
 // par `npm run plan-vaisseau` (src/data/gaia-plan.json) : voir seedItems().
 import plan from './data/gaia-plan.json'
@@ -64,6 +69,12 @@ const ICONS = {
   wrench: ['Maintenance', 'M14 6a4 4 0 0 0 5 5l-9 9a2 2 0 0 1-3-3l9-9a4 4 0 0 0-2-2z'],
   shield: ['Sécurité', 'M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z'],
   shuttle: ['Hangar', 'M12 2l3 7v8l-3 3-3-3V9z M9 13l-4 4v2l4-1 M15 13l4 4v2l-4-1'],
+  star: ['Étoile', 'M12 2l2.9 6.6 7.1.7-5.4 4.8 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.3l7.1-.7z'],
+  planet: ['Planète', 'M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z M5.2 14.6C2.8 16.6 1.9 18.3 2.6 19c1.2 1.2 6.4-1.6 11.3-6.4s7.6-10.1 6.4-11.3c-.7-.7-2.4.2-4.4 2.6'],
+  asteroids: ['Astéroïdes', 'M4 10l3-4 4 1 1 4-3 3-4-1z M14 15l2-3 3 1 1 3-2 3-3-1z M16 4l2-1 2 2-1 2h-2z'],
+  skull: ['Danger', 'M12 3a8 8 0 0 0-8 8c0 2.5 1.2 4.3 3 5.4V20h10v-3.6c1.8-1.1 3-2.9 3-5.4a8 8 0 0 0-8-8z M9 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z M15 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z M10 20v-2 M14 20v-2'],
+  flag: ['Drapeau', 'M5 21V3 M5 4h12l-3 4 3 4H5'],
+  target: ['Objectif', 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z'],
   pulse: ['Systèmes de vie', 'M3 12h4l2-5 4 10 2-5h6'],
   office: ['Bureaux', 'M2 14h20 M4 14v7 M20 14v7 M14 14v4h6 M16 16h2 M4.5 14h4 M6.5 14l-1.5-5 4-3.5 M7.6 5.2a3 3 0 0 1 5 2.8z'],
   clipboard: ['Documents', 'M8 4H6a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-2 M9 3h6v3H9z M8 11h8 M8 14h8 M8 17h5'],
@@ -337,6 +348,101 @@ export function autoTitleSize(g, s) {
   return 6
 }
 
+// ---------- Textes, lignes et symboles (cartes) ----------
+export const MARKS = ['text', 'line', 'stamp']
+const textLines = (it) => String(it.text ?? '').split('\n')
+/** Boîte d'un texte ou d'un symbole (approximative pour un texte : sans mesure, ni rotation). */
+export function markBox(it) {
+  if (it.kind === 'stamp') { const r = (it.size ?? CELL) / 2; return { minX: it.x - r, minY: it.y - r, maxX: it.x + r, maxY: it.y + r } }
+  if (it.kind === 'text') {
+    // ponytail: largeur estimée (0,55 × taille par caractère) ; mesurer avec le canevas si le clic manque de précision
+    const size = it.size ?? CELL * 0.6
+    const lines = textLines(it)
+    const w = Math.max(...lines.map((l) => l.length)) * size * 0.55 / 2
+    const hh = (lines.length * size * LINE) / 2
+    return { minX: it.x - w, minY: it.y - hh, maxX: it.x + w, maxY: it.y + hh }
+  }
+  if (it.kind === 'line') return bbox(it)
+  return null
+}
+/** Texte, symbole ou ligne sous un point (le dernier dessiné d'abord). */
+export function markAt(entries, x, y, tol) {
+  for (const e of [...entries].reverse()) {
+    const it = e[1]
+    if (it.kind === 'line') {
+      const d = Math.min(...it.pts.slice(1).map((p, i) => distToSeg(x, y, [...it.pts[i], ...p])))
+      if (d <= Math.max(tol, (it.width ?? 4) / 2)) return e
+    } else if (it.kind === 'text' || it.kind === 'stamp') {
+      const b = markBox(it)
+      if (x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY) return e
+    }
+  }
+  return null
+}
+const DASH = { solid: [], dash: [3, 2], dot: [0.1, 2] } // × épaisseur
+
+function drawMarks(g, items) {
+  for (const l of items.filter((it) => it.kind === 'line' && it.pts?.length >= 2)) {
+    const w = l.width ?? 4
+    g.strokeStyle = g.fillStyle = l.color ?? '#38e8ff'
+    g.lineWidth = w
+    g.lineCap = 'round'
+    g.lineJoin = 'round'
+    g.setLineDash((DASH[l.dash] ?? []).map((v) => v * w))
+    g.beginPath()
+    l.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)))
+    g.stroke()
+    g.setLineDash([])
+    // Pointes de flèche (triangle plein dans l'axe du dernier / premier segment)
+    const head = (tip, from) => {
+      const a = Math.atan2(tip[1] - from[1], tip[0] - from[0])
+      const L = w * 3 + 6
+      g.beginPath()
+      g.moveTo(tip[0] + Math.cos(a) * w, tip[1] + Math.sin(a) * w)
+      g.lineTo(tip[0] - Math.cos(a - 0.45) * L, tip[1] - Math.sin(a - 0.45) * L)
+      g.lineTo(tip[0] - Math.cos(a + 0.45) * L, tip[1] - Math.sin(a + 0.45) * L)
+      g.closePath()
+      g.fill()
+    }
+    if (l.arrow === 'end' || l.arrow === 'both') head(l.pts.at(-1), l.pts.at(-2))
+    if (l.arrow === 'both') head(l.pts[0], l.pts[1])
+  }
+  for (const s of items.filter((it) => it.kind === 'stamp' && ICON_PATHS[it.icon])) {
+    const size = s.size ?? CELL
+    g.save()
+    g.translate(s.x - size / 2, s.y - size / 2)
+    g.scale(size / 24, size / 24)
+    g.strokeStyle = s.color ?? '#eaf6ff'
+    g.shadowColor = s.color ?? '#eaf6ff'
+    g.shadowBlur = 6
+    g.lineWidth = 1.8
+    g.lineCap = 'round'
+    g.lineJoin = 'round'
+    g.stroke(ICON_PATHS[s.icon])
+    g.restore()
+  }
+  for (const t of items.filter((it) => it.kind === 'text' && it.text)) {
+    const size = t.size ?? CELL * 0.6
+    const lines = textLines(t)
+    g.save()
+    g.translate(t.x, t.y)
+    g.rotate(((t.angle ?? 0) * Math.PI) / 180)
+    g.font = `600 ${size}px "Segoe UI", system-ui`
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.lineJoin = 'round'
+    g.lineWidth = size * 0.18
+    g.strokeStyle = 'rgba(5, 7, 15, 0.75)' // liseré sombre : lisible sur une image de fond
+    g.fillStyle = t.color ?? '#eaf6ff'
+    lines.forEach((l, i) => {
+      const y = (i - (lines.length - 1) / 2) * size * LINE
+      g.strokeText(l, 0, y)
+      g.fillText(l, 0, y)
+    })
+    g.restore()
+  }
+}
+
 /** Couleur claire ? (texte sombre sur une forme claire) */
 function isLightColor(hex) {
   const n = Number.parseInt(String(hex).replace('#', ''), 16)
@@ -348,7 +454,7 @@ export function entriesBounds(entries) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
   const add = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
   for (const [, it] of entries) {
-    if (it.kind === 'shape') { const b = bbox(it); add(b.minX, b.minY); add(b.maxX, b.maxY) }
+    if (it.kind === 'shape' || MARKS.includes(it.kind)) { const b = markBox(it) ?? bbox(it); add(b.minX, b.minY); add(b.maxX, b.maxY) }
     else if (it.seg) { add(it.seg[0], it.seg[1]); add(it.seg[2], it.seg[3]) }
     else if (it.kind === 'camera') add(it.x, it.y)
   }
@@ -368,14 +474,21 @@ export function drawPlan(g, entries, zoom, gm = false, generic = false) {
   for (const s of shapes) {
     g.fillStyle = s.fill ?? STYLE[s.type]?.fill ?? STYLE.room.fill
     if (s.type === 'engine') { g.shadowColor = '#3f7bff'; g.shadowBlur = 18 }
+    g.globalAlpha = s.opacity ?? 1
     g.fill(shapePath(s))
+    g.globalAlpha = 1
     g.shadowBlur = 0
   }
   // Murs (pièces), puis contour lumineux de la coque et des dômes
   g.lineJoin = 'round'
-  g.strokeStyle = WALL
-  g.lineWidth = CELL * 0.07
-  for (const s of shapes) if (isRoomType(s.type) && s.type !== 'dome') g.stroke(shapePath(s))
+  for (const s of shapes) {
+    if (!isRoomType(s.type) || s.type === 'dome') continue
+    const w = s.strokeWidth ?? CELL * 0.07 // 0 : sans contour
+    if (!w) continue
+    g.strokeStyle = s.stroke ?? WALL
+    g.lineWidth = w
+    g.stroke(shapePath(s))
+  }
   for (const s of shapes.filter((x) => x.type === 'hull')) {
     g.strokeStyle = HULL
     g.lineWidth = CELL * 0.14
@@ -520,4 +633,7 @@ export function drawPlan(g, entries, zoom, gm = false, generic = false) {
       g.restore()
     }
   }
+
+  // Lignes, symboles et textes des cartes, au-dessus du reste
+  drawMarks(g, items)
 }
