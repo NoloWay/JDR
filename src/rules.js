@@ -109,15 +109,17 @@ export const OBSERVER = 'Observateur'
 export const PLAYERS = [
   // personnel : accès au « Dossier du personnel »
   { name: 'Baptracien', character: 'Zadya Alipha', personnel: true },
-  { name: 'Luneloup', character: 'Cal Atilkis', personnel: true },
+  { name: 'Juju2pom', character: 'Cal Atilkis', personnel: true },
   { name: 'Noloway', character: 'Arkhelos Philia', personnel: true },
   { name: 'Rodag', character: 'Mulgan' },
   { name: 'Walter', gm: true },
   { name: 'Withex', character: 'Emelisa Breaenna', hide: ['medical'] }, // ne voit pas les bilans médicaux
   { name: OBSERVER },
 ]
-const norm = (s) => (s || '').trim().toLowerCase()
+// Anciens pseudos → nouveaux (nom enregistré dans le navigateur, champ « Joueur » des fiches)
+const RENAMED = { luneloup: 'Juju2pom' }
+const norm = (s) => { const n = (s || '').trim().toLowerCase(); return RENAMED[n]?.toLowerCase() ?? n }
 export const presetOf = (name) => PLAYERS.find((p) => norm(p.name) === norm(name))
 // Joueur d'un personnage : le champ « Joueur » de la fiche, sinon le préréglage
 export const ownerOf = (charName, player) =>
-  (player || '').trim() || PLAYERS.find((p) => p.character && norm(p.character) === norm(charName))?.name || ''
+  presetOf(player)?.name || (player || '').trim() || PLAYERS.find((p) => p.character && norm(p.character) === norm(charName))?.name || ''

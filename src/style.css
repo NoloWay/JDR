@@ -550,3 +550,7 @@ button.badge-chip.on { border-color: var(--badge); background: color-mix(in srgb
 .layer-row .icon { padding: 0 3px; font-size: 0.75rem; }
 .layer-row .icon.on { color: var(--accent-2); font-weight: 700; }
 .layer-row .icon.danger:hover { color: var(--danger); }
+.music-listeners { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); margin-bottom: 6px; }
+.music-listeners .listener.ok { color: var(--ok); }
+.music-listeners .listener.blocked { color: var(--warn); }
+.music-listeners .listener.error, .music-listeners .listener.noapi { color: var(--danger); }

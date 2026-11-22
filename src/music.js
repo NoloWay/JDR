@@ -7,6 +7,8 @@ import { h } from './dom.js'
 //                     playlistId, index (morceau joué dans la playlist ; absents = piste seule) }
 //   musicTracks    : id → { name, videoId, start, order }   (pistes enregistrées par le MJ)
 //   musicPlaylists : id → { name, order, tracks: [{ videoId, name }] }
+//   musicStatus    : nom du joueur → { status ('ok' | 'blocked' | 'error' | 'noapi'), detail, beat }
+//                    ce que chacun entend, affiché au MJ (beat change à chaque battement : présence)
 // Playlist : à la fin d'un morceau, n'importe quel client passe au suivant (même valeur écrite par tous,
 // donc sans conflit) ; « En boucle » reprend la playlist au début (ou la piste seule).
 // Chaque joueur règle son propre volume (localStorage). Le lecteur YouTube reste visible
@@ -76,12 +78,16 @@ export function parseYouTube(input) {
 }
 
 let apiPromise = null
+/** Charge l'API IFrame de YouTube ; échoue si le script est bloqué (bloqueur de publicité, pare-feu…). */
 function loadYouTubeApi() {
-  apiPromise ??= new Promise((resolve) => {
+  apiPromise ??= new Promise((resolve, reject) => {
     if (window.YT?.Player) return resolve(window.YT)
     const previous = window.onYouTubeIframeAPIReady
     window.onYouTubeIframeAPIReady = () => { previous?.(); resolve(window.YT) }
-    document.head.append(h('script', { src: 'https://www.youtube.com/iframe_api' }))
+    const script = h('script', { src: 'https://www.youtube.com/iframe_api' })
+    script.onerror = () => reject(new Error('script bloqué'))
+    document.head.append(script)
+    setTimeout(() => reject(new Error('délai dépassé')), 20000)
   })
   return apiPromise
 }
@@ -91,6 +97,7 @@ export function setupMusic(ctx) {
   const music = ctx.doc.getMap('music')
   const tracks = ctx.doc.getMap('musicTracks')
   const playlists = ctx.doc.getMap('musicPlaylists')
+  const statuses = ctx.doc.getMap('musicStatus')
   const root = document.getElementById('music')
 
   let player = null
@@ -146,7 +153,7 @@ export function setupMusic(ctx) {
       if (ps !== YTS.PLAYING && ps !== YTS.BUFFERING) {
         player.playVideo()
         setTimeout(checkBlocked, 1500)
-      }
+      } else if (player.isMuted() && volume > 0 && !error) blocked = true // passée en sourdine par le navigateur
     } else if (ps === YTS.PLAYING || ps === YTS.BUFFERING) {
       player.pauseVideo()
       player.seekTo(expected(), true)
@@ -154,13 +161,32 @@ export function setupMusic(ctx) {
     render()
   }
 
+  /**
+   * Lecture empêchée par le navigateur ? Sans clic préalable sur la page, Chrome et Edge refusent le son :
+   * YouTube reste alors à l'arrêt, ou démarre la vidéo EN SOURDINE (elle « joue » mais on n'entend rien).
+   */
   function checkBlocked() {
     if (!ready) return
     const should = state().playing && state().videoId
     const ps = player.getPlayerState()
-    blocked = !!should && ps !== window.YT.PlayerState.PLAYING && ps !== window.YT.PlayerState.BUFFERING
+    const stalled = ps !== window.YT.PlayerState.PLAYING && ps !== window.YT.PlayerState.BUFFERING
+    blocked = !!should && !error && (stalled || (player.isMuted() && volume > 0))
     render()
   }
+  /** Débloque le son (doit venir d'un geste de l'utilisateur : clic, touche). */
+  function unlock() {
+    if (!ready) return
+    player.unMute()
+    player.setVolume(volume)
+    if (state().playing && state().videoId) player.playVideo()
+    blocked = false
+    setTimeout(checkBlocked, 1500)
+    render()
+  }
+  // Premier clic ou première touche n'importe où sur la page : on débloque le son sans attendre le bouton
+  const gesture = () => { if (blocked || (ready && player.isMuted() && volume > 0)) unlock() }
+  addEventListener('pointerdown', gesture, true)
+  addEventListener('keydown', gesture, true)
 
   // ---------- Commandes du MJ ----------
   function play(videoId, start = 0, playlistId = null, index = 0) {
@@ -271,14 +297,27 @@ export function setupMusic(ctx) {
       pl && h('div', { class: 'muted small-text' }, `Playlist « ${pl.name} » · ${(m.index ?? 0) + 1} / ${pl.tracks.length}`),
       error && h('p', { class: 'bad small-text' }, error),
       blocked && h('button', {
-        class: 'music-unlock',
-        onclick: () => { blocked = false; player.playVideo(); setTimeout(checkBlocked, 1500); render() },
-      }, '▶ Activer la musique'),
+        class: 'music-unlock', title: 'Votre navigateur a bloqué le son : un clic suffit à l’activer',
+        onclick: unlock,
+      }, '🔊 Activer le son de la musique'),
     ].filter(Boolean))
+    publishStatus()
 
     urlRow.hidden = !isGM
     gmControls.innerHTML = ''
     if (!isGM) return
+
+    // Qui entend la musique (joueurs vus récemment)
+    const now = performance.now()
+    const heard = [...statuses.entries()].filter(([name]) => now - (seen.get(name) ?? -Infinity) < 75000)
+    if (m.videoId && heard.length) {
+      const ICON = { ok: '✓', blocked: '⚠', error: '✗', noapi: '✗' }
+      const TIP = { ok: 'entend la musique', blocked: 'son bloqué par le navigateur (doit cliquer sur la page)', error: 'erreur de lecture', noapi: 'lecteur YouTube bloqué (bloqueur de publicité ?)' }
+      gmControls.append(h('div', { class: 'music-listeners small-text' }, 'Écoute : ',
+        heard.sort(([a], [b]) => a.localeCompare(b, 'fr')).map(([name, st]) => h('span', {
+          class: `listener ${st.status}`, title: `${TIP[st.status] ?? ''}${st.detail ? ` — ${st.detail}` : ''}`,
+        }, `${name} ${ICON[st.status] ?? '?'}`))))
+    }
 
     // Commandes MJ
     gmControls.append(...[
@@ -334,8 +373,40 @@ export function setupMusic(ctx) {
     ].filter(Boolean))
   }
 
+  // ---------- État de chacun (affiché au MJ) ----------
+  const seen = new Map() // nom → réception locale du dernier battement (les horloges des joueurs diffèrent)
+  let published = ''
+  let lastName = null
+  let apiFailed = ''
+  function myStatus() {
+    const m = state()
+    if (apiFailed) return { status: 'noapi', detail: apiFailed }
+    if (!m.videoId || !m.playing || !ready) return null
+    if (error) return { status: 'error', detail: error }
+    return { status: blocked ? 'blocked' : 'ok', detail: '' }
+  }
+  /** Publie son état s'il a changé (ou à chaque battement). */
+  function publishStatus(beat = false) {
+    const st = myStatus()
+    const name = ctx.me().name
+    const key = JSON.stringify([name, st]) // un changement de nom republie aussi
+    if (!beat && key === published) return
+    published = key
+    if (lastName && lastName !== name && statuses.has(lastName)) statuses.delete(lastName) // ancien pseudo
+    lastName = name
+    if (st) statuses.set(name, { ...st, beat: Math.random() })
+    else if (statuses.has(name)) statuses.delete(name)
+  }
+  statuses.observe((e) => { e.keysChanged.forEach((k) => seen.set(k, performance.now())); render() })
+  setInterval(() => publishStatus(true), 30000)
+
   // ---------- Démarrage ----------
-  loadYouTubeApi().then((YT) => {
+  loadYouTubeApi().catch((err) => {
+    apiFailed = `Le lecteur YouTube n’a pas pu se charger (${err.message}) : un bloqueur de publicité ou un pare-feu bloque peut-être youtube.com.`
+    error = apiFailed
+    render()
+    return new Promise(() => {}) // pas de lecteur
+  }).then((YT) => {
     player = new YT.Player('yt-player', {
       width: '100%',
       height: '200',
@@ -353,13 +424,14 @@ export function setupMusic(ctx) {
             player.seekTo(0, true)
             player.playVideo()
           }
-          if (e.data === YT.PlayerState.PLAYING) blocked = false
+          if (e.data === YT.PlayerState.PLAYING) setTimeout(checkBlocked, 500) // démarrée… mais peut-être en sourdine
           render()
         },
         onError: (e) => {
           error = [101, 150].includes(e.data)
-            ? 'Cette vidéo ne peut pas être lue hors de YouTube (choix de son auteur).'
-            : 'Vidéo introuvable ou illisible.'
+            ? 'Cette vidéo ne peut pas être lue ici : son auteur refuse la lecture hors de YouTube, ou elle est bloquée dans votre pays.'
+            : e.data === 100 ? 'Vidéo introuvable ou privée.' : `Vidéo illisible (erreur YouTube ${e.data}).`
+          blocked = false
           render()
         },
       },
