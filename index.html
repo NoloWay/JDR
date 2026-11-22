@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Starboard</title>
     <link rel="stylesheet" href="/src/style.css" />
+    <!-- Surcouche multi-jeux (src/launcher.js) : sans #salle, Starboard est masqué avant le premier affichage
+         pour laisser place au choix du jeu. Avec un #salle, rien ne change. -->
+    <script>if (!location.hash.slice(1)) document.documentElement.classList.add('launcher')</script>
+    <style>html.launcher body > :not(#launcher) { display: none !important; }</style>
   </head>
   <body>
     <header class="topbar">
@@ -103,6 +107,6 @@
       </aside>
     </main>
 
-    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/launcher.js"></script>
   </body>
 </html>

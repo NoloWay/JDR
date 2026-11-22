@@ -1,0 +1,41 @@
+/* Page d'accueil multi-jeux (src/launcher.js). Réutilise les variables de style.css. */
+#launcher {
+  flex: 1;
+  overflow: auto;
+  padding: 48px 24px;
+}
+
+.launcher-head { text-align: center; margin-bottom: 32px; }
+.launcher-head .brand { font-size: 1.6rem; }
+.launcher-muted { color: var(--muted); }
+
+.launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.launcher-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.launcher-card:hover { border-color: var(--accent); box-shadow: 0 0 14px rgba(56, 232, 255, 0.15); }
+.launcher-card h2 { margin: 0; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; font-size: 1.2rem; }
+.launcher-card p { margin: 0; line-height: 1.45; }
+.launcher-genre { color: var(--accent-2); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.launcher-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
+.launcher-join { display: flex; gap: 6px; flex: 1; min-width: 200px; }
+.launcher-join input { flex: 1; min-width: 0; }
+
+.launcher-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.8rem; }
+
+.launcher-soon { justify-content: center; align-items: center; border-style: dashed; text-align: center; min-height: 140px; }
+.launcher-soon:hover { border-color: var(--line); box-shadow: none; }
