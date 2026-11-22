@@ -8,6 +8,8 @@
 //   (-1 pour un cercle), t0 / t1 = position le long du côté (0 → 1, ou fraction du tour pour un cercle).
 //   seg n'est qu'une copie : la position réelle est recalculée depuis la pièce (resolveEntries).
 //   caméra  : { deck, kind: 'camera', x, y, angle (degrés) }
+// Les cartes de l'onglet Carte utilisent les mêmes éléments (carte `mapPlan`, deck = id de la carte), sans
+// notion de vaisseau : couleur libre (fill), portes sans accréditation, pas de caméra.
 // Tant qu'un étage n'a jamais été modifié, on affiche sa version d'origine, générée depuis l'Excel
 // par `npm run plan-vaisseau` (src/data/gaia-plan.json) : voir seedItems().
 import plan from './data/gaia-plan.json'
@@ -335,18 +337,36 @@ export function autoTitleSize(g, s) {
   return 6
 }
 
+/** Couleur claire ? (texte sombre sur une forme claire) */
+function isLightColor(hex) {
+  const n = Number.parseInt(String(hex).replace('#', ''), 16)
+  return /^#[0-9a-f]{6}$/i.test(hex) && 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 140
+}
+
+/** Emprise [x, y, largeur, hauteur] d'éléments, ou null s'il n'y en a pas. */
+export function entriesBounds(entries) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  const add = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
+  for (const [, it] of entries) {
+    if (it.kind === 'shape') { const b = bbox(it); add(b.minX, b.minY); add(b.maxX, b.maxY) }
+    else if (it.seg) { add(it.seg[0], it.seg[1]); add(it.seg[2], it.seg[3]) }
+    else if (it.kind === 'camera') add(it.x, it.y)
+  }
+  return x0 < x1 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null
+}
+
 /**
- * Dessine un étage. Le contexte est déjà dans le repère monde (zoom / déplacement appliqués).
- * entries : [[id, élément]…] de l'étage.
+ * Dessine un étage (ou une carte). Le contexte est déjà dans le repère monde (zoom / déplacement appliqués).
+ * entries : [[id, élément]…] ; generic : carte de l'onglet Carte (portes sans pastille d'accréditation).
  */
-export function drawPlan(g, entries, zoom, gm = false) {
+export function drawPlan(g, entries, zoom, gm = false, generic = false) {
   const px = 1 / zoom // un pixel écran, en unités monde
   const items = entries.map(([, it]) => it)
   const shapes = items.filter((it) => it.kind === 'shape').sort(drawOrder)
 
   // Fonds
   for (const s of shapes) {
-    g.fillStyle = STYLE[s.type]?.fill ?? STYLE.room.fill
+    g.fillStyle = s.fill ?? STYLE[s.type]?.fill ?? STYLE.room.fill
     if (s.type === 'engine') { g.shadowColor = '#3f7bff'; g.shadowBlur = 18 }
     g.fill(shapePath(s))
     g.shadowBlur = 0
@@ -420,6 +440,7 @@ export function drawPlan(g, entries, zoom, gm = false) {
       g.strokeStyle = '#ff5a6a'
       g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke()
     }
+    if (generic) continue
     // Pastille : niveau réel pour le MJ, niveau par défaut pour les joueurs
     const shown = gm ? d.level : d.defaultLevel ?? d.level
     g.fillStyle = BADGES.find((x) => x.name === shown)?.color ?? '#41c05a'
@@ -445,7 +466,7 @@ export function drawPlan(g, entries, zoom, gm = false) {
   g.textAlign = 'center'
   g.textBaseline = 'middle'
   for (const s of shapes.filter((x) => isRoomType(x.type))) {
-    const style = STYLE[s.type] ?? STYLE.room
+    const style = s.fill ? { text: isLightColor(s.fill) ? '#05070f' : '#eaf6ff' } : STYLE[s.type] ?? STYLE.room
     const b = bbox(s)
     const cx = (b.minX + b.maxX) / 2
     const cy = (b.minY + b.maxY) / 2

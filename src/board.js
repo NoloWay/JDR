@@ -1,7 +1,7 @@
 import { h } from './dom.js'
 import { BADGES, DOOR_ACCESS, DOOR_LEVELS, ownerOf, stricterLevel } from './rules.js'
 import { CHARACTER_MIME } from './sheets.js'
-import { CELL, DECKS, bbox, deckSize, doorAt, drawPlan, isRoomType, labelOf, resolveEntries, roomsAround, seedItems, shapeAt } from './shipMap.js'
+import { CELL, DECKS, deckSize, doorAt, drawPlan, entriesBounds, isRoomType, labelOf, resolveEntries, roomsAround, seedItems, shapeAt } from './shipMap.js'
 import { setupPlanEditor } from './planEditor.js'
 
 // Plateau : scènes (cartes), image de fond partagée, pions, caméra locale (pan + zoom).
@@ -11,7 +11,10 @@ import { setupPlanEditor } from './planEditor.js'
 //   images : id → { type, data: Uint8Array }   (image compressée en WebP, partagée en P2P)
 //   board  : 'scene' → id de la scène affichée chez tout le monde (choisie par le MJ)
 //   tokens : id → { x, y, color, label, scene }  (coordonnées « monde », en pixels de la carte)
+//   mapPlan : id → élément dessiné sur une carte (mêmes éléments que le plan du Gaïa, deck = id de la carte)
 // La caméra reste locale : chacun cadre comme il veut.
+// Les cartes (onglet Carte) sont indépendantes du vaisseau : leurs dessins vivent dans mapPlan et chaque carte
+// a ses propres jetons (un personnage peut avoir un jeton sur le vaisseau et un sur chaque carte).
 
 const DEFAULT_SCENE = 'main'
 const SHIP_SCENE = 'ship' // préfixe des scènes de l'onglet Vaisseau (ship:1, ship:0, ship:-1)
@@ -55,6 +58,7 @@ export function setupBoard(ctx) {
   const characters = doc.getMap('characters')
   const plan = doc.getMap('plan') // éléments du plan du Gaïa (formes, portes, caméras), voir shipMap.js
   const doorLevels = doc.getMap('doorLevels') // ancien stockage des niveaux de portes : repris à la première modification d'un étage
+  const mapPlan = doc.getMap('mapPlan') // dessins des cartes de l'onglet Carte (deck = id de la carte)
 
   const canvas = document.getElementById('board')
   const g = canvas.getContext('2d')
@@ -92,6 +96,11 @@ export function setupBoard(ctx) {
     ? { name: `Étage ${deck}`, grid: CELL, image: 'plan', ...deckSize(deck) } // image : permet le cadrage
     : scenes.get(sceneId()) ?? { name: 'Plateau', grid: 50, image: null })
   const tokenScene = (t) => t.scene ?? DEFAULT_SCENE
+  /** « Espace » d'une scène : tous les étages du vaisseau n'en font qu'un, chaque carte est le sien. */
+  const space = (sc) => (String(sc).startsWith(`${SHIP_SCENE}:`) ? SHIP_SCENE : sc)
+  /** Éléments dessinés d'une carte (portes placées sur le mur de leur forme). */
+  const mapEntries = (id = mapScene()) => resolveEntries([...mapPlan.entries()].filter(([, it]) => it.deck === id))
+  const entries = () => (mode === 'ship' ? deckEntries() : mapEntries())
   const tokenSize = () => Number(scene().grid) || 50
 
   // ---------- Caméra (locale, une par scène) ----------
@@ -102,23 +111,22 @@ export function setupBoard(ctx) {
   const toWorld = (sx, sy) => ({ x: (sx - cam().x) / cam().zoom, y: (sy - cam().y) / cam().zoom })
   const view = () => canvas.getBoundingClientRect()
 
-  /** Cadre la carte entière (ou l'origine s'il n'y a pas d'image). */
   /** Emprise de tous les éléments de tous les étages (même cadre quel que soit l'étage affiché). */
-  function shipBounds() {
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-    const add = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
-    for (const d of DECKS) {
-      for (const [, it] of deckEntries(d)) {
-        if (it.kind === 'shape') { const b = bbox(it); add(b.minX, b.minY); add(b.maxX, b.maxY) }
-        else if (it.kind === 'door') { add(it.seg[0], it.seg[1]); add(it.seg[2], it.seg[3]) }
-        else if (it.kind === 'camera') add(it.x, it.y)
-      }
-    }
-    return x0 < x1 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null
+  const shipBounds = () => entriesBounds(DECKS.flatMap((d) => deckEntries(d)))
+  /** Emprise d'une carte : son image de fond et ses dessins. */
+  function mapBounds() {
+    const sc = scene()
+    const parts = [sc.image && sc.width ? { x: 0, y: 0, width: sc.width, height: sc.height } : null, entriesBounds(mapEntries())].filter(Boolean)
+    if (!parts.length) return null
+    const x = Math.min(...parts.map((p) => p.x))
+    const y = Math.min(...parts.map((p) => p.y))
+    return { x, y, width: Math.max(...parts.map((p) => p.x + p.width)) - x, height: Math.max(...parts.map((p) => p.y + p.height)) - y }
   }
 
+  /** Cadre la carte entière (ou l'origine s'il n'y a rien). */
   function fit() {
-    const s = mode === 'ship' ? { image: 'plan', ...(shipBounds() ?? { x: 0, y: 0, ...deckSize(deck) }) } : { x: 0, y: 0, ...scene() }
+    const b = mode === 'ship' ? shipBounds() ?? { x: 0, y: 0, ...deckSize(deck) } : mapBounds()
+    const s = b ? { image: 'plan', ...b } : { image: null }
     const { width, height } = view()
     const c = cam()
     if (!width || !height) return // pas encore affiché (onglet en arrière-plan) : on cadrera au redimensionnement
@@ -170,10 +178,15 @@ export function setupBoard(ctx) {
 
     const bmp = mode === 'ship' ? null : bitmap(s.image)
     if (mode === 'ship') drawPlan(g, deckEntries(), c.zoom, ctx.me().isGM)
-    else if (bmp) {
-      g.imageSmoothingEnabled = c.zoom < 2 // plans en « pixel art » : net quand on zoome
-      g.drawImage(bmp, 0, 0, s.width, s.height)
+    else {
+      if (bmp) {
+        g.imageSmoothingEnabled = c.zoom < 2 // plans en « pixel art » : net quand on zoome
+        g.drawImage(bmp, 0, 0, s.width, s.height)
+      }
+      drawPlan(g, mapEntries(), c.zoom, ctx.me().isGM, true)
     }
+    // Carte vide (ni fond ni dessin) : invitation à importer une carte
+    placeholder.hidden = !(mode === 'map' && !s.image && !mapEntries().length && !mapEditor.active)
 
     // Pions de la scène (ceux des personnages cachés : invisibles aux joueurs, translucides pour le MJ)
     const r = tokenSize() * 0.4
@@ -206,7 +219,7 @@ export function setupBoard(ctx) {
       g.globalAlpha = 1
     })
 
-    if (mode === 'ship') editor.drawOverlay(g, c.zoom)
+    ed().drawOverlay(g, c.zoom)
 
     document.getElementById('zoom-label').textContent = `${Math.round(c.zoom * 100)} %`
   }
@@ -230,8 +243,8 @@ export function setupBoard(ctx) {
   canvas.addEventListener('pointerdown', (e) => {
     const { sx, sy } = pointer(e)
     const world = toWorld(sx, sy)
-    const editing = mode === 'ship' && editor.active
-    if (editing && editor.pointerDown(world, e)) {
+    const editing = ed().active
+    if (editing && ed().pointerDown(world, e)) {
       drag = { kind: 'edit' }
       canvas.setPointerCapture(e.pointerId)
       return
@@ -251,17 +264,15 @@ export function setupBoard(ctx) {
   canvas.addEventListener('pointermove', (e) => {
     const { sx, sy } = pointer(e)
     if (!drag) {
-      // Vue Vaisseau : nom de la pièce survolée en infobulle
-      if (mode === 'ship') {
-        const w = toWorld(sx, sy)
-        const room = shapeAt(g, deckEntries(), w.x, w.y, (it) => isRoomType(it.type))
-        canvas.title = room ? labelOf(room[1]) : ''
-        editor.hover(w, e) // aperçu de la polyligne en cours
-      }
+      // Nom de la pièce (ou de la zone) survolée en infobulle
+      const w = toWorld(sx, sy)
+      const room = shapeAt(g, entries(), w.x, w.y, (it) => isRoomType(it.type))
+      canvas.title = room ? labelOf(room[1]) : ''
+      ed().hover(w, e) // aperçu de la polyligne en cours
       return
     }
     if (drag.kind === 'edit') {
-      editor.pointerMove(toWorld(sx, sy), e)
+      ed().pointerMove(toWorld(sx, sy), e)
     } else if (drag.kind === 'pan') {
       cam().x = drag.cx + sx - drag.sx
       cam().y = drag.cy + sy - drag.sy
@@ -274,7 +285,7 @@ export function setupBoard(ctx) {
   })
 
   function endDrag(e) {
-    if (drag?.kind === 'edit') editor.pointerUp()
+    if (drag?.kind === 'edit') ed().pointerUp()
     // Simple clic (sans déplacement) dans la vue Vaisseau, hors édition : ouvre la fiche de la porte cliquée
     if (drag?.kind === 'pan' && e?.type === 'pointerup' && mode === 'ship' && !editor.active) {
       const { sx, sy } = pointer(e)
@@ -310,7 +321,7 @@ export function setupBoard(ctx) {
 
   canvas.addEventListener('dblclick', (e) => {
     const { sx, sy } = pointer(e)
-    if (mode === 'ship' && editor.active) return editor.dblclick(toWorld(sx, sy))
+    if (ed().active) return ed().dblclick(toWorld(sx, sy))
     const hit = hitToken(toWorld(sx, sy))
     if (hit) tokens.delete(hit)
   })
@@ -329,11 +340,14 @@ export function setupBoard(ctx) {
   // Un joueur voit toujours le jeton de son propre personnage, même caché par le MJ
   const visible = (t) => tokenScene(t) === sceneId() && (ctx.me().isGM || !look(t).hidden || look(t).mine)
 
-  /** MJ : place le jeton d'un personnage ; s'il existe déjà (sur n'importe quelle scène), il est déplacé ici. */
+  /**
+   * MJ : place le jeton d'un personnage ; s'il en a déjà un dans le même espace (le vaisseau, ou cette carte),
+   * il est déplacé ici. Le vaisseau et chaque carte ont leurs propres jetons.
+   */
   function placeCharacter(charId, world) {
     const c = characters.get(charId)
     if (!c) return
-    const existing = [...tokens.entries()].find(([, t]) => t.charId === charId)
+    const existing = [...tokens.entries()].find(([, t]) => t.charId === charId && space(tokenScene(t)) === space(sceneId()))
     const pos = { x: world.x, y: world.y, scene: sceneId() }
     if (existing) tokens.set(existing[0], { ...existing[1], ...pos })
     else tokens.set(crypto.randomUUID(), { ...pos, charId, label: look({ charId }).label, color: look({ charId }).color })
@@ -430,7 +444,7 @@ export function setupBoard(ctx) {
     }))
   }
 
-  // ---------- Éditeur du plan (MJ) ----------
+  // ---------- Éditeurs (MJ) : plan du Gaïa, et dessin générique des cartes ----------
   const editor = setupPlanEditor({
     doc, plan, g,
     deck: () => deck,
@@ -440,6 +454,29 @@ export function setupBoard(ctx) {
     draw: () => draw(),
     stage: canvas.parentElement,
   })
+  const mapEditor = setupPlanEditor({
+    doc, plan: mapPlan, g, generic: true,
+    deck: () => mapScene(),
+    entries: () => mapEntries(),
+    ensureSeeded: () => {},
+    zoom: () => cam().zoom,
+    draw: () => draw(),
+    stage: canvas.parentElement,
+  })
+  const ed = () => (mode === 'ship' ? editor : mapEditor)
+
+  // Carte vide : « Importer une carte » (MJ : choisir une image de fond ; joueurs : simple mention)
+  const placeholder = h('button', {
+    class: 'map-placeholder', hidden: true,
+    onclick: () => { if (ctx.me().isGM) chooseImage() },
+  })
+  canvas.parentElement.append(placeholder)
+  const renderPlaceholder = () => {
+    placeholder.disabled = !ctx.me().isGM
+    placeholder.textContent = ctx.me().isGM ? 'Importer une carte' : 'Aucune carte pour l’instant'
+    placeholder.title = ctx.me().isGM ? 'Choisir une image de fond, ou dessiner la carte avec « ✎ Modifier la carte »' : ''
+  }
+  renderPlaceholder()
 
   // ---------- Barre des scènes ----------
   const sortedScenes = () => [...scenes.entries()].sort(([, a], [, b]) => (a.order ?? 0) - (b.order ?? 0))
@@ -478,7 +515,7 @@ export function setupBoard(ctx) {
   }
 
   function newScene() {
-    const name = prompt('Nom de la nouvelle scène ?', 'Nouvelle scène')?.trim()
+    const name = prompt('Nom de la nouvelle carte ?', 'Nouvelle carte')?.trim()
     if (!name) return
     const id = crypto.randomUUID()
     const order = Math.max(0, ...[...scenes.values()].map((s) => s.order ?? 0)) + 1
@@ -491,13 +528,15 @@ export function setupBoard(ctx) {
 
   function deleteScene() {
     const id = sceneId()
-    if (id === DEFAULT_SCENE) return alert('La scène principale ne peut pas être supprimée.')
-    if (!confirm(`Supprimer la scène « ${scene().name} » et ses pions ?`)) return
+    if (id === DEFAULT_SCENE) return alert('La carte principale ne peut pas être supprimée.')
+    if (!confirm(`Supprimer la carte « ${scene().name} », ses dessins et ses jetons ?`)) return
+    mapEditor.setActive(false)
     doc.transact(() => {
       const img = scenes.get(id)?.image
       scenes.delete(id)
       if (img && ![...scenes.values()].some((s) => s.image === img)) images.delete(img)
       tokens.forEach((t, tid) => { if (tokenScene(t) === id) tokens.delete(tid) })
+      mapPlan.forEach((it, pid) => { if (it.deck === id) mapPlan.delete(pid) })
       board.set('scene', DEFAULT_SCENE)
     })
   }
@@ -548,11 +587,22 @@ export function setupBoard(ctx) {
     const list = sortedScenes().filter(([id]) => !String(id).startsWith(SHIP_SCENE))
     bar.append(...[
       isGM && list.length
-        ? h('select', { title: 'Scène affichée chez tout le monde', onchange: (e) => board.set('scene', e.target.value) },
+        ? h('select', { title: 'Carte ouverte chez tout le monde', onchange: (e) => board.set('scene', e.target.value) },
           list.map(([id, sc]) => h('option', { value: id, selected: id === sceneId() }, sc.name)))
         : h('span', { class: 'scene-name' }, s.name),
-      isGM && h('button', { class: 'small', onclick: newScene }, '+ Scène'),
+      isGM && h('button', { class: 'small', onclick: newScene }, '+ Carte'),
       isGM && h('button', { class: 'small', onclick: chooseImage }, s.image ? 'Changer le fond' : 'Image de fond'),
+      isGM && s.image && h('button', {
+        class: 'small', title: 'Retirer l’image de fond (les dessins et les jetons restent)',
+        onclick: () => {
+          if (!confirm('Retirer l’image de fond de cette carte ?')) return
+          const old = s.image
+          doc.transact(() => {
+            patchScene({ image: null })
+            if (![...scenes.values()].some((x) => x.image === old)) images.delete(old)
+          })
+        },
+      }, 'Sans fond'),
       isGM && h('button', {
         class: 'small',
         onclick: () => { const n = prompt('Nom de la scène ?', s.name)?.trim(); if (n) patchScene({ name: n }) },
@@ -563,6 +613,12 @@ export function setupBoard(ctx) {
           onchange: (e) => patchScene({ grid: Math.max(4, Math.min(400, Number(e.target.value) || 50)) }),
         })),
       isGM && sceneId() !== DEFAULT_SCENE && h('button', { class: 'small danger', onclick: deleteScene }, 'Supprimer'),
+      isGM && h('span', { class: 'sep' }),
+      isGM && h('button', {
+        class: mapEditor.active ? 'small primary' : 'small',
+        title: 'Dessiner sur la carte (zones, portes, vitres)',
+        onclick: () => { mapEditor.setActive(!mapEditor.active); renderBar() },
+      }, mapEditor.active ? 'Terminer' : '✎ Modifier la carte'),
     ].filter(Boolean))
   }
 
@@ -573,6 +629,7 @@ export function setupBoard(ctx) {
     if (sceneId() !== lastScene) {
       lastScene = sceneId()
       lastImage = scene().image
+      mapEditor.deckChanged()
       if (!cam().fitted) fit()
     } else if (scene().image !== lastImage) {
       // Nouvelle carte sur la scène affichée : on recadre
@@ -588,6 +645,7 @@ export function setupBoard(ctx) {
   tokens.observe(draw)
   characters.observeDeep(draw) // nom, badge ou visibilité d'un personnage
   plan.observe(() => { draw(); renderDoor(); editor.refresh() })
+  mapPlan.observe(() => { draw(); mapEditor.refresh() })
 
   addEventListener('resize', resize)
   document.getElementById('btn-fit').addEventListener('click', fit)
@@ -616,7 +674,10 @@ export function setupBoard(ctx) {
     const [match] = matchCharacters(query)
     if (!match) return { error: 'Aucun personnage à ce nom' }
     const [charId, c] = match
-    const entry = [...tokens.entries()].find(([, t]) => t.charId === charId)
+    // Jeton de l'onglet affiché d'abord (vaisseau ou carte ouverte), sinon n'importe lequel
+    const all = [...tokens.entries()].filter(([, t]) => t.charId === charId)
+    const here = (t) => (mode === 'ship' ? space(tokenScene(t)) === SHIP_SCENE : tokenScene(t) === mapScene())
+    const entry = all.find(([, t]) => here(t)) ?? all.find(([, t]) => space(tokenScene(t)) === SHIP_SCENE) ?? all[0]
     if (!entry) return { error: `${c.get('name')} : pas de jeton posé` }
     const scene = tokenScene(entry[1])
     if (scene.startsWith(`${SHIP_SCENE}:`)) return { view: 'ship', tokenId: entry[0], name: c.get('name') }
@@ -653,7 +714,8 @@ export function setupBoard(ctx) {
     findToken,
     focusToken,
     rerender() {
-      if (editor.active && !ctx.me().isGM) editor.setActive(false) // l'édition est réservée au MJ
+      if (!ctx.me().isGM) { editor.setActive(false); mapEditor.setActive(false) } // l'édition est réservée au MJ
+      renderPlaceholder()
       renderBar()
       renderDoor()
       draw()
@@ -663,6 +725,7 @@ export function setupBoard(ctx) {
       mode = m === 'map' ? 'map' : 'ship'
       closeDoor()
       if (mode !== 'ship' && editor.active) editor.setActive(false)
+      if (mode !== 'map' && mapEditor.active) mapEditor.setActive(false)
       lastScene = sceneId()
       lastImage = scene().image
       if (!cam().fitted) fit()

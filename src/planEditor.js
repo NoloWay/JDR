@@ -8,6 +8,8 @@ import {
 
 // Éditeur du plan du Gaïa (MJ) : formes, portes, caméras. Toutes les modifications vont dans la carte
 // `plan` du Y.Doc (partagées en direct, annulables avec Ctrl+Z).
+// Mode générique (ctx.generic, onglet Carte) : mêmes outils sans notion de vaisseau — pas de caméra,
+// de coque liée, d'accréditation ni d'étage ; les formes ont une couleur libre.
 
 const SNAP = CELL / 4 // aimantation des points (Alt : désactivée)
 
@@ -117,9 +119,12 @@ function translate(it, dx, dy) {
 }
 
 /**
- * ctx : { doc, plan, deck(), entries(), ensureSeeded(deck), zoom(), draw(), g, stage }
+ * ctx : { doc, plan, deck(), entries(), ensureSeeded(deck), zoom(), draw(), g, stage, generic }
  */
 export function setupPlanEditor(ctx) {
+  const generic = !!ctx.generic
+  const tools = generic ? TOOLS.filter(([k]) => k !== 'camera') : TOOLS
+  const NEW_NAME = generic ? 'Nouvelle zone' : 'Nouvelle pièce'
   let active = false
   let tool = 'select'
   let sides = 6
@@ -154,7 +159,7 @@ export function setupPlanEditor(ctx) {
         else ctx.plan.delete(cid)
       }
     }
-    if (LINKED.has(it.type) && it.name) {
+    if (!generic && LINKED.has(it.type) && it.name) {
       const [ox, oy] = centerOf(old)
       for (const d of DECKS.filter((x) => x !== it.deck)) {
         ctx.ensureSeeded(d)
@@ -217,14 +222,14 @@ export function setupPlanEditor(ctx) {
   const snap = (w, free) => (free ? { x: round(w.x), y: round(w.y) } : { x: Math.round(w.x / SNAP) * SNAP, y: Math.round(w.y / SNAP) * SNAP })
 
   // ---------- Panneaux ----------
-  const tools = h('div', { class: 'plan-tools' })
+  const toolsEl = h('div', { class: 'plan-tools' })
   const props = h('div', { class: 'plan-props' })
   const renderProps = liveRender(props, buildProps)
 
   function renderTools() {
-    tools.innerHTML = ''
-    add(tools,
-      h('div', { class: 'tool-row' }, TOOLS.map(([k, icon, title]) => h('button', {
+    toolsEl.innerHTML = ''
+    add(toolsEl,
+      h('div', { class: 'tool-row' }, tools.map(([k, icon, title]) => h('button', {
         class: `tool${tool === k ? ' on' : ''}`, title, onclick: () => { tool = k; draft = null; renderTools(); ctx.draw() },
       }, icon))),
       tool === 'ngon' && h('label', { class: 'check' }, 'Côtés',
@@ -234,7 +239,7 @@ export function setupPlanEditor(ctx) {
       h('div', { class: 'tool-row' },
         h('button', { class: 'small', title: 'Annuler (Ctrl+Z)', onclick: () => undo.undo() }, '↶'),
         h('button', { class: 'small', title: 'Rétablir (Ctrl+Y)', onclick: () => undo.redo() }, '↷'),
-        h('button', {
+        !generic && h('button', {
           class: 'small danger', title: 'Remettre cet étage tel que dans l’Excel',
           onclick: () => {
             if (!confirm(`Remettre l'étage ${ctx.deck()} tel que dans l'Excel ? Toutes ses modifications seront perdues.`)) return
@@ -245,7 +250,7 @@ export function setupPlanEditor(ctx) {
             ctx.ensureSeeded(ctx.deck())
           },
         }, 'Réinitialiser l’étage'),
-        h('button', {
+        !generic && h('button', {
           class: 'small', title: 'Cale tous les points de l’étage sur la grille d’aimantation (bords qui ne se superposent pas)',
           onclick: () => ctx.doc.transact(() => ctx.entries().forEach(([id, it]) => {
             const s = (v) => Math.round(v / SNAP) * SNAP
@@ -255,7 +260,7 @@ export function setupPlanEditor(ctx) {
             else if (it.pts) set(id, { ...it, pts: it.pts.map(([x, y]) => [s(x), s(y)]) })
           })),
         }, 'Aligner l’étage sur la grille')),
-      h('p', { class: 'hint' }, 'Alt : sans aimantation · Flèches : déplacer d’un cran (Maj : une case) · Suppr : effacer · Ctrl+clic : sélection multiple · Ctrl+C / Ctrl+V : copier, y compris vers un autre étage · Échap : désélectionner · molette / clic milieu : vue'),
+      h('p', { class: 'hint' }, `Alt : sans aimantation · Flèches : déplacer d’un cran (Maj : une case) · Suppr : effacer · Ctrl+clic : sélection multiple · Ctrl+C / Ctrl+V : copier, y compris vers ${generic ? 'une autre carte' : 'un autre étage'} · Échap : désélectionner · molette / clic milieu : vue`),
     )
   }
 
@@ -272,31 +277,37 @@ export function setupPlanEditor(ctx) {
       add(props,
         h('h4', {}, `${group.size} éléments sélectionnés`),
         h('p', { class: 'hint' }, 'Glisser l’un d’eux ou utiliser les flèches pour tout déplacer ; tirer un coin du cadre pour tout redimensionner (Maj : proportions gardées). Ctrl+clic pour ajouter ou retirer un élément.'),
-        h('div', { class: 'tool-row' }, target,
+        !generic && h('div', { class: 'tool-row' }, target,
           h('button', { class: 'small', title: 'Copier la sélection sur l’étage choisi, au même endroit', onclick: () => copyAll(groupItems(), target.value) }, 'Copier vers')),
         h('button', { class: 'small danger', onclick: removeGroup }, 'Supprimer la sélection'))
       return
     }
     const it = selected && get(selected)
     if (!it) {
-      add(props, h('h4', {}, 'Plan'), h('p', { class: 'muted' }, 'Choisis un outil pour dessiner, ou clique sur une pièce, une porte ou une caméra pour la modifier.'))
+      add(props, h('h4', {}, generic ? 'Carte' : 'Plan'), h('p', { class: 'muted' }, generic
+        ? 'Choisis un outil pour dessiner, ou clique sur une forme ou une porte pour la modifier.'
+        : 'Choisis un outil pour dessiner, ou clique sur une pièce, une porte ou une caméra pour la modifier.'))
       return
     }
     const patch = (changes) => set(selected, { ...get(selected), ...changes })
     const remove = h('button', { class: 'small danger', onclick: () => { ctx.doc.transact(() => del(selected)); select(null) } }, 'Supprimer')
     // Copier vers un autre étage (même position)
     const target = h('select', {}, DECKS.filter((d) => d !== ctx.deck()).map((d) => h('option', { value: d }, `Étage ${d.replace('-', '−')}`)))
-    const copyRow = h('div', { class: 'tool-row' }, target,
+    const copyRow = !generic && h('div', { class: 'tool-row' }, target,
       h('button', { class: 'small', title: 'Copier cet élément sur l’étage choisi, au même endroit', onclick: () => copyTo(get(selected), target.value) }, 'Copier vers'))
 
     if (it.kind === 'shape') {
       const z = shapesZ()
       add(props,
-        h('h4', {}, SHAPE_TYPES[it.type] ?? 'Forme'),
+        h('h4', {}, generic ? 'Zone' : SHAPE_TYPES[it.type] ?? 'Forme'),
         field('Nom', h('input', { value: it.name ?? '', onchange: (e) => patch({ name: e.target.value }) })),
         field('Numéro', h('input', { value: it.code ?? '', placeholder: 'ex. 12 ou 5.1', onchange: (e) => patch({ code: e.target.value.trim() }) })),
-        field('Type', h('select', { onchange: (e) => patch({ type: e.target.value }) },
-          Object.entries(SHAPE_TYPES).map(([k, l]) => h('option', { value: k, selected: k === it.type }, l)))),
+        generic
+          ? field('Couleur', h('div', { class: 'tool-row' },
+            h('input', { type: 'color', value: it.fill ?? '#14204a', onchange: (e) => patch({ fill: e.target.value }) }),
+            it.fill && h('button', { class: 'small', onclick: () => patch({ fill: null }) }, 'Par défaut')))
+          : field('Type', h('select', { onchange: (e) => patch({ type: e.target.value }) },
+            Object.entries(SHAPE_TYPES).map(([k, l]) => h('option', { value: k, selected: k === it.type }, l)))),
         field('Logo', iconPicker(it.icon ?? '', iconOf({ ...it, icon: '' }), (icon) => patch({ icon }))),
         it.type === 'hull' && h('label', { class: 'check', title: 'Verrouillée : un glisser sur la coque déplace la vue au lieu de la coque' },
           h('input', { type: 'checkbox', checked: isLocked(it), onchange: (e) => patch({ locked: e.target.checked }) }),
@@ -328,6 +339,11 @@ export function setupPlanEditor(ctx) {
           (it.titleDx || it.titleDy) && h('button', { class: 'small', title: 'Remettre le titre en haut, au centre', onclick: () => patch({ titleDx: 0, titleDy: 0 }) }, 'Recentrer le titre')),
         h('p', { class: 'hint' }, 'Le losange jaune déplace le titre.'),
         copyRow, remove)
+    } else if (it.kind === 'door' && generic) {
+      add(props,
+        h('h4', {}, 'Porte'),
+        h('p', { class: 'hint' }, 'Accrochée au mur de sa forme, elle la suit. Glisser pour la faire coulisser, tirer ses extrémités pour l’allonger.'),
+        remove)
     } else if (it.kind === 'door') {
       const levels = (value, key) => h('select', { onchange: (e) => patch({ [key]: e.target.value }) },
         DOOR_LEVELS.map((l) => h('option', { value: l, selected: l === value }, `Badge ${l}`)))
@@ -460,7 +476,7 @@ export function setupPlanEditor(ctx) {
   function created(from, to, free) {
     const deck = ctx.deck()
     const z = Math.max(0, ...shapesZ()) + 1
-    const base = { deck, kind: 'shape', type: 'room', code: '', name: 'Nouvelle pièce', icon: '', radius: 0.3, z }
+    const base = { deck, kind: 'shape', type: 'room', code: '', name: NEW_NAME, icon: '', radius: 0.3, z }
     const r = Math.hypot(to.x - from.x, to.y - from.y)
     if (tool === 'camera') return { deck, kind: 'camera', x: from.x, y: from.y, angle: 0 }
     if (tool === 'door' || tool === 'window') {
@@ -471,7 +487,8 @@ export function setupPlanEditor(ctx) {
       const seg = wallSeg(host, at.edge, at.t0, at.t1)
       if (Math.hypot(seg[2] - seg[0], seg[3] - seg[1]) < CELL * 0.3) return null
       const wall = { deck, ...at, seg }
-      return tool === 'window' ? { ...wall, kind: 'window' } : { ...wall, kind: 'door', level: 'Vert', defaultLevel: 'Vert', access: false }
+      if (tool === 'window') return { ...wall, kind: 'window' }
+      return generic ? { ...wall, kind: 'door' } : { ...wall, kind: 'door', level: 'Vert', defaultLevel: 'Vert', access: false }
     }
     if (tool === 'rect') {
       if (Math.abs(to.x - from.x) < CELL * 0.4 || Math.abs(to.y - from.y) < CELL * 0.4) return null
@@ -501,7 +518,7 @@ export function setupPlanEditor(ctx) {
   function closeDraft() {
     if (draft?.pts.length >= 3) {
       const id = crypto.randomUUID()
-      set(id, { deck: ctx.deck(), kind: 'shape', type: 'room', code: '', name: 'Nouvelle pièce', icon: '', radius: 0.3, z: Math.max(0, ...shapesZ()) + 1, pts: draft.pts })
+      set(id, { deck: ctx.deck(), kind: 'shape', type: 'room', code: '', name: NEW_NAME, icon: '', radius: 0.3, z: Math.max(0, ...shapesZ()) + 1, pts: draft.pts })
       tool = 'select'
       renderTools()
       draft = null
@@ -758,13 +775,13 @@ export function setupPlanEditor(ctx) {
       group = new Set()
       if (on) {
         // Tous les étages copiés d'emblée (hors annulation) : la liaison coque / propulseurs écrit sur les autres étages
-        DECKS.forEach((d) => ctx.ensureSeeded(d))
+        if (!generic) DECKS.forEach((d) => ctx.ensureSeeded(d))
         attachLoose()
         renderTools()
         renderProps()
-        ctx.stage.append(tools, props)
+        ctx.stage.append(toolsEl, props)
       } else {
-        tools.remove()
+        toolsEl.remove()
         props.remove()
       }
       ctx.draw()
