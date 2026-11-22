@@ -2,6 +2,8 @@
 
 Plateau de jeu de rôle spatial en ligne, gratuit, sans serveur. Voir `CLAUDE.md` pour le contexte complet et la feuille de route.
 
+Site en ligne : **https://noloway.github.io/JDR/** (accueil multi-jeux ; Starboard est le premier jeu).
+
 ## Lancer en local
 ```bash
 npm install

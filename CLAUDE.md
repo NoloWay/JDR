@@ -6,7 +6,7 @@ Outil sur mesure pour un jeu de rôle (RP) **original de science-fiction spatial
 ## Contrainte principale : coût zéro
 Aucun hébergement payant, aucun serveur à maintenir. Le seul coût accepté est du temps de développement.
 
-- **Site** : 100 % statique (Vite), déployé gratuitement sur GitHub Pages (workflow dans `.github/workflows/deploy.yml`).
+- **Site** : 100 % statique (Vite), déployé gratuitement sur GitHub Pages (workflow dans `.github/workflows/deploy.yml`) à l'adresse **https://noloway.github.io/JDR/** (dépôt `NoloWay/JDR`, renommé de `Starboard` en novembre 2026 pour accueillir plusieurs jeux ; l'ancienne adresse `/Starboard/` n'est pas redirigée, choix assumé). Les sauvegardes (IndexedDB, localStorage) sont liées au domaine `noloway.github.io`, pas au chemin : un renommage du dépôt les conserve.
 - **Synchro temps réel** : WebRTC pair-à-pair via **Trystero** (stratégie `torrent`, relais publics gratuits). Pas de serveur de jeu.
 - **État partagé** : **Yjs** (CRDT). Chaque joueur a une copie complète, les modifications fusionnent automatiquement. Le premier qui arrive dans la salle n'est pas « l'hôte » : tout le monde est égal.
 - **Persistance** : `y-indexeddb` (sauvegarde locale par salle) + export/import JSON.
