@@ -64,6 +64,7 @@ const ICONS = {
   shuttle: ['Hangar', 'M12 2l3 7v8l-3 3-3-3V9z M9 13l-4 4v2l4-1 M15 13l4 4v2l-4-1'],
   pulse: ['Systèmes de vie', 'M3 12h4l2-5 4 10 2-5h6'],
   office: ['Bureaux', 'M2 14h20 M4 14v7 M20 14v7 M14 14v4h6 M16 16h2 M4.5 14h4 M6.5 14l-1.5-5 4-3.5 M7.6 5.2a3 3 0 0 1 5 2.8z'],
+  clipboard: ['Documents', 'M8 4H6a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-2 M9 3h6v3H9z M8 11h8 M8 14h8 M8 17h5'],
 }
 export const ICON_NAMES = Object.fromEntries(Object.entries(ICONS).map(([k, [label]]) => [k, label]))
 export const ICON_SVG = Object.fromEntries(Object.entries(ICONS).map(([k, [, d]]) => [k, d]))
