@@ -23,6 +23,7 @@ src/music.js      # musique d'ambiance YouTube synchronisée (lecteur IFrame off
 src/rules.js      # règles : caractéristiques, compétences, badges, calcul des scores
 src/dice.js       # jets sous la valeur, critiques, avantage/désavantage
 src/sheets.js     # liste de l'équipage + fiche de personnage (données dans le Y.Doc)
+src/personnel.js  # « Dossier du personnel » : registre de l'équipage (MJ + préréglages `personnel: true` : Noloway, Luneloup, Baptracien), y compris les fiches cachées, sauf `inPersonnel: false` (coche MJ de la fiche, décochée par défaut pour une fiche créée par le MJ)
 src/style.css     # thème néon futuriste (variables CSS en tête de fichier)
 scripts/import-excel.mjs  # npm run import-fiches : Excel de references/ → JSON importable
 scripts/plan-vaisseau.mjs # npm run plan-vaisseau : feuille « Map » de l'Excel de gestion → src/data/gaia-plan.json

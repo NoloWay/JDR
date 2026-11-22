@@ -34,6 +34,7 @@ export function writeCharacter(characters, id, data = {}) {
   m.set('name', data.name ?? 'Nouveau personnage')
   m.set('badge', data.badge ?? 'Vert')
   m.set('hidden', !!data.hidden)
+  if (data.inPersonnel != null) m.set('inPersonnel', !!data.inPersonnel) // absent = dans le dossier du personnel
   const stats = new Y.Map()
   m.set('stats', stats)
   STATS.forEach(({ key }) => stats.set(key, { base: data.stats?.[key]?.base ?? 10, mod: data.stats?.[key]?.mod ?? 0 }))
@@ -191,6 +192,9 @@ export function setupSheets(ctx) {
       isGM && h('div', { class: 'edit-gm' },
         h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: data.hidden, onchange: (e) => c.set('hidden', e.target.checked) }), 'Cachée aux joueurs'),
+        h('label', { class: 'check', title: 'Les joueurs ayant accès au dossier du personnel voient ce personnage, même si sa fiche est cachée' },
+          h('input', { type: 'checkbox', checked: data.inPersonnel !== false, onchange: (e) => c.set('inPersonnel', e.target.checked) }),
+          'Faire apparaître dans le dossier du personnel'),
         h('button', {
           class: 'small danger',
           onclick: () => { if (confirm(`Supprimer la fiche de ${data.name} ?`)) { characters.delete(openId); close() } },
@@ -280,7 +284,7 @@ export function setupSheets(ctx) {
 
   document.getElementById('btn-new-sheet').addEventListener('click', () => {
     const id = crypto.randomUUID()
-    ctx.doc.transact(() => writeCharacter(characters, id, { hidden: ctx.me().isGM }))
+    ctx.doc.transact(() => writeCharacter(characters, id, { hidden: ctx.me().isGM, inPersonnel: !ctx.me().isGM }))
     open(id)
     editing = true
     render()
@@ -288,6 +292,7 @@ export function setupSheets(ctx) {
 
   return {
     close() { if (openId) close() },
+    open(id) { if (id !== openId) open(id) },
     /** À appeler quand le rôle ou le nom change */
     rerender() {
       renderList()

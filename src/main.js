@@ -2,6 +2,7 @@ import { connect } from './net.js'
 import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from './dice.js'
 import { setupSheets, replaceCharacters } from './sheets.js'
 import { setupShip, writeShip } from './shipPanel.js'
+import { setupPersonnel } from './personnel.js'
 import { setupBoard } from './board.js'
 import { setupMusic } from './music.js'
 import { PLAYERS, OBSERVER, presetOf, BADGES } from './rules.js'
@@ -166,8 +167,9 @@ log.observe(renderLog)
 doc.getMap('characters').observeDeep(renderLog) // couleur des badges
 
 // ---------- Fiches & vaisseau (un seul panneau ouvert à la fois) ----------
-const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => ship.close() })
-const ship = setupShip({ doc, me, onRoll: rollCheck, onOpen: () => sheets.close() })
+const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => { ship.close(); personnel.close() } })
+const ship = setupShip({ doc, me, onRoll: rollCheck, onOpen: () => { sheets.close(); personnel.close() } })
+const personnel = setupPersonnel({ doc, me, openSheet: (id) => sheets.open(id), onOpen: () => { sheets.close(); ship.close() } })
 
 // ---------- Identité : nom & rôle ----------
 $('name-select').addEventListener('change', (e) => {
@@ -185,6 +187,7 @@ function setRole(r) {
   renderLog()
   sheets.rerender()
   ship.rerender()
+  personnel.rerender()
   board.rerender()
   music.rerender()
 }

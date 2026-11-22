@@ -107,9 +107,10 @@ export function skillStatsLabel(skill) {
 // Ordre alphabétique des pseudos ; « Observateur » = rôle neutre, sans personnage.
 export const OBSERVER = 'Observateur'
 export const PLAYERS = [
-  { name: 'Baptracien', character: 'Zadya Alipha' },
-  { name: 'Luneloup', character: 'Cal Atilkis' },
-  { name: 'Noloway', character: 'Arkhelos Philia' },
+  // personnel : accès au « Dossier du personnel »
+  { name: 'Baptracien', character: 'Zadya Alipha', personnel: true },
+  { name: 'Luneloup', character: 'Cal Atilkis', personnel: true },
+  { name: 'Noloway', character: 'Arkhelos Philia', personnel: true },
   { name: 'Rodag', character: 'Mulgan' },
   { name: 'Walter', gm: true },
   { name: 'Withex', character: 'Emelisa Breaenna', hide: ['medical'] }, // ne voit pas les bilans médicaux
