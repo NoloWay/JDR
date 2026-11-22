@@ -78,7 +78,9 @@ export function setupSheets(ctx) {
   let openId = null
   let editing = false
 
-  const canSee = (c) => ctx.me().isGM || !c.get('hidden')
+  // Personnage du joueur connecté : sa fiche lui reste visible même cachée par le MJ
+  const isMine = (c) => ownerOf(c.get('name'), c.get('player')).toLowerCase() === ctx.me().name.toLowerCase()
+  const canSee = (c) => ctx.me().isGM || !c.get('hidden') || isMine(c)
   const canEdit = (c) => {
     const { name, isGM } = ctx.me()
     const owner = ownerOf(c.get('name'), c.get('player'))
@@ -107,14 +109,15 @@ export function setupSheets(ctx) {
       })
     const isGM = ctx.me().isGM
     for (const [id, c] of entries) {
+      const canDrag = isGM || isMine(c)
       const badge = BADGES.find((b) => b.name === c.get('badge'))
       listEl.append(h('li', {
         class: `crew-item${id === openId ? ' active' : ''}${c.get('hidden') ? ' is-hidden' : ''}${isGM ? ' with-vis' : ''}`,
         onclick: () => open(id),
-        // MJ : glisser le personnage sur la carte crée (ou déplace) son jeton
-        draggable: isGM,
-        ondragstart: isGM && ((e) => { e.dataTransfer.setData(CHARACTER_MIME, id); e.dataTransfer.effectAllowed = 'copy' }),
-        title: isGM ? 'Glisser sur la carte pour placer son jeton' : null,
+        // MJ (tous) ou joueur (le sien) : glisser le personnage sur la carte crée (ou déplace) son jeton
+        draggable: canDrag,
+        ondragstart: canDrag && ((e) => { e.dataTransfer.setData(CHARACTER_MIME, id); e.dataTransfer.effectAllowed = 'copy' }),
+        title: canDrag ? 'Glisser sur la carte pour placer son jeton' : null,
       },
       isGM && h('input', {
         type: 'checkbox', class: 'vis-toggle', checked: !c.get('hidden'), title: 'Visible par les joueurs',

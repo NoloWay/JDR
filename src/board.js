@@ -63,6 +63,12 @@ export function setupBoard(ctx) {
   const doorLevels = doc.getMap('doorLevels') // ancien stockage des niveaux de portes : repris à la première modification d'un étage
   const mapPlan = doc.getMap('mapPlan') // dessins des cartes de l'onglet Carte (deck = id de la carte)
   const mapLibrary = doc.getMap('mapLibrary') // modèles de la bibliothèque (éditeur de carte)
+  // État des salles du vaisseau (id de la forme → { depressurized }), à part du plan : ne copie pas l'étage d'origine
+  const roomStates = doc.getMap('roomStates')
+  const isDepressurized = (id) => !!roomStates.get(id)?.depressurized
+  /** Salles dépressurisées : hachures rouges par-dessus leur fond. */
+  const withRoomStates = (entries) => entries.map(([id, it]) =>
+    (it.kind === 'shape' && isDepressurized(id) ? [id, { ...it, pattern: 'hatch', patternColor: '#ff4d6d' }] : [id, it]))
 
   const canvas = document.getElementById('board')
   const screen = canvas.getContext('2d')
@@ -260,7 +266,7 @@ export function setupBoard(ctx) {
     g.setTransform(k * c.zoom, 0, 0, k * c.zoom, k * c.x, k * c.y)
 
     const bmp = mode === 'ship' ? null : bitmap(s.image)
-    if (mode === 'ship') drawPlan(g, deckEntries(), c.zoom, ctx.me().isGM)
+    if (mode === 'ship') drawPlan(g, withRoomStates(deckEntries()), c.zoom, ctx.me().isGM)
     else {
       if (bmp) {
         g.imageSmoothingEnabled = c.zoom < 2 // plans en « pixel art » : net quand on zoome
@@ -291,13 +297,20 @@ export function setupBoard(ctx) {
         g.lineWidth = r * 0.18
         g.beginPath(); g.arc(t.x, t.y, r * 1.7, 0, Math.PI * 2); g.stroke()
       }
-      const { label, color, hidden, isChar } = look(t)
+      const { label, color, hidden, isChar, pj } = look(t)
       g.globalAlpha = hidden ? 0.45 : 1
       g.shadowColor = color
       g.shadowBlur = 14
       g.fillStyle = color
       g.beginPath()
-      g.arc(t.x, t.y, r, 0, Math.PI * 2)
+      if (pj) { // personnage joueur : étoile à 5 branches
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + (i * Math.PI) / 5
+          const d = i % 2 ? r * 0.68 : r * 1.25
+          g.lineTo(t.x + d * Math.cos(a), t.y + d * Math.sin(a))
+        }
+        g.closePath()
+      } else g.arc(t.x, t.y, r, 0, Math.PI * 2)
       g.fill()
       g.shadowBlur = 0
       if (isChar) { // anneau : distingue les personnages (et rend visibles les badges sombres)
@@ -327,11 +340,12 @@ export function setupBoard(ctx) {
     const r = view()
     return { sx: e.clientX - r.left, sy: e.clientY - r.top }
   }
+  /** Jeton sous le pointeur que je peux déplacer ou effacer (joueur : seulement celui de son personnage). */
   function hitToken(world) {
     let hit = null
     const r = tokenSize() * 0.4
     tokens.forEach((t, id) => {
-      if (visible(t) && Math.hypot(t.x - world.x, t.y - world.y) <= r) hit = id
+      if (visible(t) && (ctx.me().isGM || look(t).mine) && Math.hypot(t.x - world.x, t.y - world.y) <= r) hit = id
     })
     return hit
   }
@@ -369,7 +383,7 @@ export function setupBoard(ctx) {
       // Nom de la pièce (ou de la zone) survolée en infobulle
       const w = toWorld(sx, sy)
       const room = shapeAt(g, entries(), w.x, w.y, (it) => isRoomType(it.type))
-      canvas.title = room && !fogged(w) ? labelOf(room[1]) : ''
+      canvas.title = room && !fogged(w) ? labelOf(room[1]) + (mode === 'ship' && isDepressurized(room[0]) ? ' — dépressurisée' : '') : ''
       ed().hover(w, e) // aperçu de la polyligne en cours
       return
     }
@@ -392,13 +406,16 @@ export function setupBoard(ctx) {
     if (drag?.kind === 'token') { const t = tokens.get(drag.id); if (t) { const p = snapToken(t); if (p.x !== t.x || p.y !== t.y) tokens.set(drag.id, { ...t, ...p }) } }
     if (drag?.kind === 'edit') ed().pointerUp()
     if (drag?.kind === 'tool') tools.pointerUp()
-    // Simple clic (sans déplacement) dans la vue Vaisseau, hors édition : ouvre la fiche de la porte cliquée
+    // Simple clic (sans déplacement) dans la vue Vaisseau, hors édition : ouvre la fiche de la porte cliquée,
+    // sinon (MJ) celle de la salle cliquée
     if (drag?.kind === 'pan' && e?.type === 'pointerup' && mode === 'ship' && !editor.active) {
       const { sx, sy } = pointer(e)
       if (Math.hypot(sx - drag.sx, sy - drag.sy) < 4) {
         const w = toWorld(sx, sy)
         const door = doorAt(deckEntries(), w.x, w.y)
+        const room = !door && ctx.me().isGM && shapeAt(g, deckEntries(), w.x, w.y, (it) => isRoomType(it.type))
         if (door) openDoor(door[0], sx, sy)
+        else if (room) openDoor(room[0], sx, sy, true)
         else closeDoor()
       }
     }
@@ -441,8 +458,9 @@ export function setupBoard(ctx) {
     const c = t.charId && characters.get(t.charId)
     if (!c) return { label: t.label, color: t.color, hidden: false, isChar: false }
     const initials = c.get('name').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
-    const mine = ownerOf(c.get('name'), c.get('player')).toLowerCase() === ctx.me().name.toLowerCase()
-    return { label: initials, color: BADGES.find((b) => b.name === c.get('badge'))?.color ?? '#9aa4b5', hidden: !!c.get('hidden'), isChar: true, mine }
+    const owner = ownerOf(c.get('name'), c.get('player'))
+    const mine = owner.toLowerCase() === ctx.me().name.toLowerCase()
+    return { label: initials, color: BADGES.find((b) => b.name === c.get('badge'))?.color ?? '#9aa4b5', hidden: !!c.get('hidden'), isChar: true, mine, pj: !!owner }
   }
   /** Point (monde) sous le brouillard pour un joueur (le MJ voit tout). */
   function fogged(w) {
@@ -454,7 +472,7 @@ export function setupBoard(ctx) {
   const visible = (t) => tokenScene(t) === sceneId() && (ctx.me().isGM || look(t).mine || (!look(t).hidden && !fogged(t)))
 
   /**
-   * MJ : place le jeton d'un personnage ; s'il en a déjà un dans le même espace (le vaisseau, ou cette carte),
+   * MJ (ou joueur, pour son personnage) : place le jeton d'un personnage ; s'il en a déjà un dans le même espace (le vaisseau, ou cette carte),
    * il est déplacé ici. Le vaisseau et chaque carte ont leurs propres jetons.
    */
   function placeCharacter(charId, world) {
@@ -467,11 +485,12 @@ export function setupBoard(ctx) {
   }
 
   canvas.addEventListener('dragover', (e) => {
-    if (ctx.me().isGM && e.dataTransfer.types.includes(CHARACTER_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+    // (l'identifiant n'est lisible qu'au dépôt : un joueur voit le curseur « copier », le dépôt vérifie que c'est le sien)
+    if (e.dataTransfer.types.includes(CHARACTER_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
   })
   canvas.addEventListener('drop', (e) => {
     const id = e.dataTransfer.getData(CHARACTER_MIME)
-    if (!id || !ctx.me().isGM) return
+    if (!id || !(ctx.me().isGM || look({ charId: id }).mine)) return
     e.preventDefault()
     const { sx, sy } = pointer(e)
     placeCharacter(id, toWorld(sx, sy))
@@ -489,7 +508,7 @@ export function setupBoard(ctx) {
   }
 
   // ---------- Portes du vaisseau : niveau d'accréditation (modifiable par tous) ----------
-  let popup = null // { el, id }
+  let popup = null // { el, id, room } (room : fenêtre d'une salle, MJ)
 
   function closeDoor() {
     popup?.el.remove()
@@ -502,10 +521,10 @@ export function setupBoard(ctx) {
     plan.set(id, it)
   }
 
-  function openDoor(id, sx, sy) {
+  function openDoor(id, sx, sy, room = false) {
     closeDoor()
     const el = h('div', { class: 'door-popup' })
-    popup = { el, id }
+    popup = { el, id, room }
     renderDoor()
     canvas.parentElement.append(el)
     // Placée à côté du clic, sans sortir du plateau
@@ -514,8 +533,26 @@ export function setupBoard(ctx) {
     el.style.top = `${Math.min(Math.max(8, sy - 20), height - el.offsetHeight - 8)}px`
   }
 
+  /** MJ : état d'une salle (dépressurisée = hachurée chez tous). */
+  function renderRoom() {
+    const { el, id } = popup
+    const room = deckEntries().find(([k]) => k === id)?.[1]
+    if (!room || !ctx.me().isGM) return closeDoor()
+    el.innerHTML = ''
+    el.append(
+      h('header', {}, h('b', {}, 'Salle'), h('button', { class: 'icon', title: 'Fermer', onclick: closeDoor }, '×')),
+      h('p', { class: 'door-rooms' }, labelOf(room)),
+      h('label', { class: 'check', title: 'La salle apparaît hachurée de rouge chez tous les joueurs' },
+        h('input', {
+          type: 'checkbox', checked: isDepressurized(id),
+          onchange: (e) => (e.target.checked ? roomStates.set(id, { depressurized: true }) : roomStates.delete(id)),
+        }), ' Dépressurisée'),
+    )
+  }
+
   function renderDoor() {
     if (!popup) return
+    if (popup.room) return renderRoom()
     const { el, id } = popup
     const entries = deckEntries()
     const door = entries.find(([k]) => k === id)?.[1]
@@ -908,6 +945,7 @@ export function setupBoard(ctx) {
   tokens.observe(draw)
   characters.observeDeep(draw) // nom, badge ou visibilité d'un personnage
   plan.observe(() => { draw(); renderDoor(); editor.refresh() })
+  roomStates.observe(() => { draw(); renderDoor() })
   mapPlan.observe(() => { draw(); mapEditor.refresh() })
 
   addEventListener('resize', resize)

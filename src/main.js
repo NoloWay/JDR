@@ -215,6 +215,7 @@ $('btn-export').addEventListener('click', () => {
     mapLibrary: doc.getMap('mapLibrary').toJSON(),
     folders: doc.getMap('folders').toJSON(),
     folderMembers: doc.getMap('folderMembers').toJSON(),
+    roomStates: doc.getMap('roomStates').toJSON(),
     ship: doc.getMap('ship').toJSON(),
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -239,8 +240,8 @@ $('file-import').addEventListener('change', async (e) => {
     alert('Fichier JSON illisible.')
     return
   }
-  const parts = ['scenes', 'tokens', 'log', 'characters', 'ship', 'musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'folders', 'folderMembers'].filter((k) => data[k] && Object.keys(data[k]).length)
-  const names = { scenes: 'cartes (fonds et réglages)', tokens: 'pions', log: 'journal', characters: 'fiches', ship: 'vaisseau', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', doorLevels: 'accréditations des portes (ancien format)', plan: 'plan du vaisseau', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', folders: 'dossiers du MJ', folderMembers: 'contenu des dossiers' }
+  const parts = ['scenes', 'tokens', 'log', 'characters', 'ship', 'musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'folders', 'folderMembers', 'roomStates'].filter((k) => data[k] && Object.keys(data[k]).length)
+  const names = { scenes: 'cartes (fonds et réglages)', tokens: 'pions', log: 'journal', characters: 'fiches', ship: 'vaisseau', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', doorLevels: 'accréditations des portes (ancien format)', plan: 'plan du vaisseau', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', folders: 'dossiers du MJ', folderMembers: 'contenu des dossiers', roomStates: 'état des salles (dépressurisation)' }
   if (!parts.length) return alert('Aucune donnée Starboard dans ce fichier.')
   if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
   if (parts.includes('scenes')) board.importData(data)
@@ -257,7 +258,7 @@ $('file-import').addEventListener('change', async (e) => {
   if (parts.includes('characters')) replaceCharacters(doc, data.characters)
   if (parts.includes('ship')) writeShip(doc, data.ship)
   // Collections simples (id → valeur) : remplacées telles quelles
-  for (const k of ['musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'folders', 'folderMembers'].filter((p) => parts.includes(p))) {
+  for (const k of ['musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'folders', 'folderMembers', 'roomStates'].filter((p) => parts.includes(p))) {
     const map = doc.getMap(k)
     doc.transact(() => { map.clear(); Object.entries(data[k]).forEach(([id, v]) => map.set(id, v)) })
   }
