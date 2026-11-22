@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { h, liveRender, pips } from './dom.js'
+import { folderList, memberKey, setMember } from './folders.js'
 import {
   STATS, STAT_POINTS, STAT_MAX, LEVELS, SKILLS, SKILL_GROUPS, BADGES,
   BASE_SKILL_LEVELS, FREE_SKILL_LEVELS, statValue, skillValue, skillStatsLabel, ownerOf, presetOf,
@@ -195,6 +196,11 @@ export function setupSheets(ctx) {
         h('label', { class: 'check', title: 'Les joueurs ayant accès au dossier du personnel voient ce personnage, même si sa fiche est cachée' },
           h('input', { type: 'checkbox', checked: data.inPersonnel !== false, onchange: (e) => c.set('inPersonnel', e.target.checked) }),
           'Faire apparaître dans le dossier du personnel'),
+        // Dossiers du MJ auxquels appartient ce personnage
+        folderList(ctx.doc).length > 0 && h('div', { class: 'sheet-folders' }, h('span', { class: 'muted' }, 'Dossiers :'),
+          folderList(ctx.doc).map(([fid, f]) => h('label', { class: 'check' },
+            h('input', { type: 'checkbox', checked: ctx.doc.getMap('folderMembers').has(memberKey(fid, openId)), onchange: (e) => setMember(ctx.doc, fid, openId, e.target.checked) }),
+            f.name))),
         h('button', {
           class: 'small danger',
           onclick: () => {
@@ -290,6 +296,8 @@ export function setupSheets(ctx) {
     renderList()
     if (openId) render()
   })
+  // Dossiers du MJ (cases de la fiche)
+  for (const k of ['folders', 'folderMembers']) ctx.doc.getMap(k).observe(() => { if (openId) render() })
 
   document.getElementById('btn-new-sheet').addEventListener('click', () => {
     const id = crypto.randomUUID()

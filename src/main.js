@@ -3,6 +3,7 @@ import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from './dice.js'
 import { setupSheets, replaceCharacters } from './sheets.js'
 import { setupShip, writeShip } from './shipPanel.js'
 import { setupPersonnel } from './personnel.js'
+import { setupFolders } from './folders.js'
 import { setupBoard } from './board.js'
 import { setupMusic } from './music.js'
 import { PLAYERS, OBSERVER, presetOf, BADGES } from './rules.js'
@@ -167,9 +168,10 @@ log.observe(renderLog)
 doc.getMap('characters').observeDeep(renderLog) // couleur des badges
 
 // ---------- Fiches & vaisseau (un seul panneau ouvert à la fois) ----------
-const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => { ship.close(); personnel.close() } })
-const ship = setupShip({ doc, me, onRoll: rollCheck, onOpen: () => { sheets.close(); personnel.close() } })
-const personnel = setupPersonnel({ doc, me, openSheet: (id) => sheets.open(id), onOpen: () => { sheets.close(); ship.close() } })
+const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => { ship.close(); personnel.close(); folders.close() } })
+const ship = setupShip({ doc, me, onRoll: rollCheck, onOpen: () => { sheets.close(); personnel.close(); folders.close() } })
+const personnel = setupPersonnel({ doc, me, openSheet: (id) => sheets.open(id), onOpen: () => { sheets.close(); ship.close(); folders.close() } })
+const folders = setupFolders({ doc, me, openSheet: (id) => sheets.open(id), onOpen: () => { sheets.close(); ship.close(); personnel.close() } })
 
 // ---------- Identité : nom & rôle ----------
 $('name-select').addEventListener('change', (e) => {
@@ -188,6 +190,7 @@ function setRole(r) {
   sheets.rerender()
   ship.rerender()
   personnel.rerender()
+  folders.rerender()
   board.rerender()
   music.rerender()
 }
@@ -210,6 +213,8 @@ $('btn-export').addEventListener('click', () => {
     drawings: doc.getMap('drawings').toJSON(),
     fog: doc.getMap('fog').toJSON(),
     mapLibrary: doc.getMap('mapLibrary').toJSON(),
+    folders: doc.getMap('folders').toJSON(),
+    folderMembers: doc.getMap('folderMembers').toJSON(),
     ship: doc.getMap('ship').toJSON(),
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -234,8 +239,8 @@ $('file-import').addEventListener('change', async (e) => {
     alert('Fichier JSON illisible.')
     return
   }
-  const parts = ['scenes', 'tokens', 'log', 'characters', 'ship', 'musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary'].filter((k) => data[k] && Object.keys(data[k]).length)
-  const names = { scenes: 'cartes (fonds et réglages)', tokens: 'pions', log: 'journal', characters: 'fiches', ship: 'vaisseau', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', doorLevels: 'accréditations des portes (ancien format)', plan: 'plan du vaisseau', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte' }
+  const parts = ['scenes', 'tokens', 'log', 'characters', 'ship', 'musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'folders', 'folderMembers'].filter((k) => data[k] && Object.keys(data[k]).length)
+  const names = { scenes: 'cartes (fonds et réglages)', tokens: 'pions', log: 'journal', characters: 'fiches', ship: 'vaisseau', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', doorLevels: 'accréditations des portes (ancien format)', plan: 'plan du vaisseau', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', folders: 'dossiers du MJ', folderMembers: 'contenu des dossiers' }
   if (!parts.length) return alert('Aucune donnée Starboard dans ce fichier.')
   if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
   if (parts.includes('scenes')) board.importData(data)
@@ -252,7 +257,7 @@ $('file-import').addEventListener('change', async (e) => {
   if (parts.includes('characters')) replaceCharacters(doc, data.characters)
   if (parts.includes('ship')) writeShip(doc, data.ship)
   // Collections simples (id → valeur) : remplacées telles quelles
-  for (const k of ['musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary'].filter((p) => parts.includes(p))) {
+  for (const k of ['musicTracks', 'musicPlaylists', 'doorLevels', 'plan', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'folders', 'folderMembers'].filter((p) => parts.includes(p))) {
     const map = doc.getMap(k)
     doc.transact(() => { map.clear(); Object.entries(data[k]).forEach(([id, v]) => map.set(id, v)) })
   }

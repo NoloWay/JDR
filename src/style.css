@@ -554,3 +554,4 @@ button.badge-chip.on { border-color: var(--badge); background: color-mix(in srgb
 .music-listeners .listener.ok { color: var(--ok); }
 .music-listeners .listener.blocked { color: var(--warn); }
 .music-listeners .listener.error, .music-listeners .listener.noapi { color: var(--danger); }
+.sheet-folders { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }

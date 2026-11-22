@@ -24,6 +24,7 @@ src/rules.js      # règles : caractéristiques, compétences, badges, calcul de
 src/dice.js       # jets sous la valeur, critiques, avantage/désavantage
 src/sheets.js     # liste de l'équipage + fiche de personnage (données dans le Y.Doc)
 src/personnel.js  # « Dossier du personnel » : registre de l'équipage (MJ + préréglages `personnel: true` : Noloway, Juju2pom, Baptracien), y compris les fiches cachées, sauf `inPersonnel: false` (coche MJ de la fiche, décochée par défaut pour une fiche créée par le MJ)
+src/folders.js    # « Dossiers » du MJ (catégorie du volet de gauche, MJ seul) : listes libres de personnages, `doc.getMap('folders')` (id → `{name}`) et `doc.getMap('folderMembers')` (`<dossier>|<personnage>` → true, une clé par appartenance) ; un personnage peut être dans plusieurs dossiers, cases dans le panneau du dossier et sur la fiche (édition MJ) ; dans l'export JSON
 src/style.css     # thème néon futuriste (variables CSS en tête de fichier)
 scripts/import-excel.mjs  # npm run import-fiches : Excel de references/ → JSON importable
 scripts/plan-vaisseau.mjs # npm run plan-vaisseau : feuille « Map » de l'Excel de gestion → src/data/gaia-plan.json
