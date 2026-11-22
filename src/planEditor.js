@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import { h, liveRender } from './dom.js'
 import { DOOR_LEVELS } from './rules.js'
 import {
-  CELL, DECKS, SHAPE_TYPES, ICON_NAMES, bbox, shapeAt, doorAt, cameraAt, shapePath, isRoomType, titleAnchor, autoTitleSize,
+  CELL, DECKS, SHAPE_TYPES, ICON_NAMES, ICON_SVG, iconOf, bbox, shapeAt, doorAt, cameraAt, shapePath, isRoomType, titleAnchor, autoTitleSize,
   attachToWall, resolveItem, wallParam, wallSeg,
 } from './shipMap.js'
 
@@ -10,6 +10,24 @@ import {
 // `plan` du Y.Doc (partagées en direct, annulables avec Ctrl+Z).
 
 const SNAP = CELL / 4 // aimantation des points (Alt : désactivée)
+
+/** Aperçu d'un logo (SVG du tracé de shipMap), vide pour « aucun ». */
+const iconSvg = (key) => {
+  const box = h('span', { class: 'icon-preview' })
+  if (ICON_SVG[key]) box.innerHTML = `<svg viewBox="0 0 24 24"><path d="${ICON_SVG[key]}"/></svg>`
+  return box
+}
+/** Liste déroulante des logos (nom + aperçu, ordre alphabétique). auto = logo déduit du nom. */
+function iconPicker(value, auto, onPick) {
+  const sorted = Object.entries(ICON_NAMES).sort(([, a], [, b]) => a.localeCompare(b, 'fr'))
+  const options = [['', 'Automatique (d’après le nom)', auto], ['none', 'Aucun', null], ...sorted.map(([k, l]) => [k, l, k])]
+  const [, label, shown] = options.find(([k]) => k === value) ?? options[0]
+  return h('details', { class: 'icon-pick' },
+    h('summary', {}, iconSvg(shown), label),
+    h('div', { class: 'icon-list' }, options.map(([k, l, icon]) => h('button', {
+      class: k === value ? 'on' : '', onclick: () => onPick(k),
+    }, iconSvg(icon), l))))
+}
 const TOOLS = [
   ['select', '⬚', 'Sélection : cliquer pour choisir, glisser pour déplacer, poignées pour modifier'],
   ['rect', '▭', 'Rectangle : glisser d’un coin à l’autre'],
@@ -279,9 +297,7 @@ export function setupPlanEditor(ctx) {
         field('Numéro', h('input', { value: it.code ?? '', placeholder: 'ex. 12 ou 5.1', onchange: (e) => patch({ code: e.target.value.trim() }) })),
         field('Type', h('select', { onchange: (e) => patch({ type: e.target.value }) },
           Object.entries(SHAPE_TYPES).map(([k, l]) => h('option', { value: k, selected: k === it.type }, l)))),
-        field('Logo', h('select', { onchange: (e) => patch({ icon: e.target.value }) },
-          [['', 'Automatique (d’après le nom)'], ['none', 'Aucun'], ...Object.entries(ICON_NAMES)]
-            .map(([k, l]) => h('option', { value: k, selected: k === (it.icon ?? '') }, l)))),
+        field('Logo', iconPicker(it.icon ?? '', iconOf({ ...it, icon: '' }), (icon) => patch({ icon }))),
         it.type === 'hull' && h('label', { class: 'check', title: 'Verrouillée : un glisser sur la coque déplace la vue au lieu de la coque' },
           h('input', { type: 'checkbox', checked: isLocked(it), onchange: (e) => patch({ locked: e.target.checked }) }),
           ' Verrouillée (ne bouge pas)'),

@@ -4,7 +4,7 @@ import { setupSheets, replaceCharacters } from './sheets.js'
 import { setupShip, writeShip } from './shipPanel.js'
 import { setupBoard } from './board.js'
 import { setupMusic } from './music.js'
-import { PLAYERS, OBSERVER, presetOf } from './rules.js'
+import { PLAYERS, OBSERVER, presetOf, BADGES } from './rules.js'
 
 // ---------- Salle & identité ----------
 if (!location.hash.slice(1)) {
@@ -114,34 +114,56 @@ function rollCheck(label, target, sides) {
 // ---------- Journal ----------
 const canSeeEntry = (entry) => !entry.secret || role === 'gm' || entry.who === playerName
 
+// Couleur d'un auteur : badge de son personnage, cyan pour le MJ (couleur absente des badges), gris sinon
+const GM_COLOR = '#38e8ff'
+const READABLE = { Noir: '#e6e9ef' } // badge trop sombre pour du texte sur fond nuit
+function colorOf(who) {
+  const p = presetOf(who)
+  if (p?.gm) return GM_COLOR
+  const c = p?.character && [...doc.getMap('characters').values()].find((c) => c.get('name') === p.character)
+  const badge = c?.get('badge')
+  return READABLE[badge] ?? BADGES.find((b) => b.name === badge)?.color ?? '#6c85b3'
+}
+const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text ?? '' })
+const hhmm = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+
 function renderLog() {
   const ul = $('log-list')
   ul.innerHTML = ''
   log.toArray().filter(canSeeEntry).slice(-100).reverse().forEach((entry) => {
-    const li = document.createElement('li')
-    if (entry.secret) li.classList.add('secret')
-    const b = document.createElement('b')
-    b.textContent = entry.who
-    li.append(b, ` ${entry.text}`)
-    if (entry.secret) li.title = 'Jet secret : visible par son auteur et le MJ'
-
+    const li = el('li', 'entry')
+    li.style.setProperty('--who', colorOf(entry.who))
+    if (entry.secret) { li.classList.add('secret'); li.title = 'Jet secret : visible par son auteur et le MJ' }
     const r = entry.roll
+    // « Personnage · Compétence » : le sujet passe dans l'en-tête, l'action devient le titre
+    const [subject, action] = r && entry.text.includes(' · ') ? entry.text.split(' · ', 2) : [null, entry.text]
+
+    const head = el('div', 'entry-head')
+    head.append(el('b', 'who', presetOf(entry.who)?.gm ? `${entry.who} (MJ)` : entry.who))
+    if (subject && subject !== presetOf(entry.who)?.character) head.append(el('span', 'subject', subject))
+    if (entry.secret) head.append(el('span', 'tag', 'secret'))
+    head.append(el('time', '', entry.t ? hhmm(entry.t) : ''))
+    li.append(head)
+
+    const body = el('div', 'entry-body')
     if (r) {
       li.classList.add(`outcome-${r.outcome}`)
-      const detail = document.createElement('div')
-      detail.className = 'roll-detail'
-      const mode = MODE_LABEL[r.mode] ? ` (${MODE_LABEL[r.mode]})` : ''
-      const dice = r.values.length > 1 ? `${r.values.join(' / ')}` : `${r.values[0]}`
-      detail.textContent = `1d${r.sides} ≤ ${r.target}${mode} : ${dice}`
-      const res = document.createElement('div')
-      res.className = 'roll-result'
-      res.textContent = OUTCOME_LABEL[r.outcome] + (r.kept != null && r.values.length > 1 ? ` (${r.kept})` : '')
-      li.append(detail, res)
+      body.append(el('span', 'action', action), el('span', 'roll-result', OUTCOME_LABEL[r.outcome]))
+      const mode = MODE_LABEL[r.mode] ? ` · ${MODE_LABEL[r.mode]}` : ''
+      const dice = r.values.length > 1 ? `${r.values.join(' et ')} → ${r.kept}` : `${r.values[0]}`
+      li.append(body, el('div', 'roll-detail', `🎲 ${dice} pour ${r.target} ou moins (d${r.sides}${mode})`))
+    } else {
+      // Jet libre « d20 → 14 »
+      const free = /^d(\d+) → (\d+)$/.exec(entry.text)
+      if (free) body.append(el('span', 'action', `Dé libre d${free[1]}`), el('span', 'roll-value', free[2]))
+      else body.append(el('span', 'action', entry.text))
+      li.append(body)
     }
     ul.append(li)
   })
 }
 log.observe(renderLog)
+doc.getMap('characters').observeDeep(renderLog) // couleur des badges
 
 // ---------- Fiches & vaisseau (un seul panneau ouvert à la fois) ----------
 const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => ship.close() })

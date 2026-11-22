@@ -433,16 +433,26 @@ input.num { width: 64px; font-variant-numeric: tabular-nums; }
 }
 .log h2 { margin: 0 0 8px; font-size: 0.8rem; letter-spacing: 0.2em; color: var(--muted); }
 .log ul { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
-.log li { padding: 4px 0; border-bottom: 1px solid var(--line); }
-.log li b { color: var(--accent-2); }
-.log li.secret { border-left: 2px dashed var(--muted); padding-left: 6px; }
-.log li.secret::before { content: 'SECRET · '; font-size: 0.65rem; letter-spacing: 0.1em; color: var(--muted); }
-.roll-detail { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.roll-result { font-weight: 700; letter-spacing: 0.03em; }
+/* Journal : une carte par entrée, bordée de la couleur de l'auteur (--who) */
+.log li.entry {
+  margin-bottom: 6px; padding: 6px 8px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025); border-left: 3px solid var(--who, var(--muted));
+}
+.log li.entry.secret { border-left-style: dashed; background: rgba(108, 133, 179, 0.08); }
+.entry-head { display: flex; align-items: baseline; gap: 6px; font-size: 0.75rem; }
+.entry-head .who { color: var(--who, var(--muted)); }
+.entry-head .subject { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-head .tag { font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--muted); border-radius: 3px; padding: 0 3px; }
+.entry-head time { margin-left: auto; color: var(--muted); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+.entry-body { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.entry-body .action { font-weight: 600; color: var(--text); }
+.roll-value { font-weight: 700; font-size: 1.05rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.roll-detail { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.roll-result { flex: none; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; }
 .outcome-success .roll-result { color: var(--ok); }
 .outcome-fail .roll-result { color: var(--danger); }
-.outcome-crit-success .roll-result { color: var(--ok); text-shadow: 0 0 8px var(--ok); text-transform: uppercase; }
-.outcome-crit-fail .roll-result { color: var(--danger); text-shadow: 0 0 8px var(--danger); text-transform: uppercase; }
+.outcome-crit-success .roll-result { color: var(--bg); background: var(--ok); border-color: var(--ok); box-shadow: 0 0 8px var(--ok); text-transform: uppercase; }
+.outcome-crit-fail .roll-result { color: var(--bg); background: var(--danger); border-color: var(--danger); box-shadow: 0 0 8px var(--danger); text-transform: uppercase; }
 .outcome-both-crits .roll-result { color: var(--warn); text-shadow: 0 0 8px var(--warn); text-transform: uppercase; }
 
 /* ---------- Musique ---------- */
@@ -478,3 +488,13 @@ body:not(.is-gm) .gm-only { display: none; }
 .music-playlist > .small { margin: 2px 0 6px; }
 .crew h2 { gap: 6px; }
 .crew-tools button { white-space: nowrap; }
+
+/* Choix du logo (éditeur du plan) : nom + aperçu */
+.icon-pick { font-size: 0.85rem; color: var(--text); }
+.icon-pick summary { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
+.icon-list { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-top: none; background: var(--bg); }
+.icon-list button { display: flex; align-items: center; gap: 8px; text-align: left; padding: 3px 6px; border: none; border-radius: 0; background: none; color: var(--text); }
+.icon-list button:hover { background: var(--line); }
+.icon-list button.on { color: var(--accent); }
+.icon-preview { flex: none; width: 20px; height: 20px; }
+.icon-preview svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }

@@ -63,8 +63,10 @@ const ICONS = {
   shield: ['Sécurité', 'M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z'],
   shuttle: ['Hangar', 'M12 2l3 7v8l-3 3-3-3V9z M9 13l-4 4v2l4-1 M15 13l4 4v2l-4-1'],
   pulse: ['Systèmes de vie', 'M3 12h4l2-5 4 10 2-5h6'],
+  office: ['Bureaux', 'M3 8h18v12H3z M9 8V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3 M3 13h18 M11 12h2v2h-2z'],
 }
 export const ICON_NAMES = Object.fromEntries(Object.entries(ICONS).map(([k, [label]]) => [k, label]))
+export const ICON_SVG = Object.fromEntries(Object.entries(ICONS).map(([k, [, d]]) => [k, d]))
 const ICON_PATHS = Object.fromEntries(Object.entries(ICONS).map(([k, [, d]]) => [k, new Path2D(d)]))
 const ICON_RULES = [
   [/escalier/, 'stairs'], [/ascenseur|monte-charge/, 'elevator'], [/rampe/, 'ramp'],
@@ -73,7 +75,7 @@ const ICON_RULES = [
   [/réfectoire/, 'food'], [/cuisine/, 'kitchen'], [/réfrigér/, 'cold'], [/stockage|laverie/, 'box'],
   [/toilettes|douches/, 'water'], [/incendie/, 'fire'], [/réacteur/, 'reactor'], [/propulseur/, 'thruster'],
   [/générateurs/, 'bolt'], [/contrôle/, 'monitor'], [/maintenance|entretien|atelier/, 'gear'],
-  [/armurerie/, 'shield'], [/hangar/, 'shuttle'], [/systèmes de vie/, 'pulse'],
+  [/armurerie/, 'shield'], [/hangar/, 'shuttle'], [/systèmes de vie/, 'pulse'], [/bureau/, 'office'],
 ]
 const TYPE_ICON = { electric: 'bolt', ventilation: 'fan', maintenance: 'wrench' }
 /** Icône d'une forme : choisie explicitement, sinon déduite du type ou du nom ('none' = aucune). */
