@@ -12,15 +12,20 @@ const APP_ID = import.meta.env.DEV ? 'Noloway-dev' : 'Noloway'
  * - Yjs garde l'état partagé (fusion automatique des modifications).
  * - Trystero relaie les mises à jour entre navigateurs en WebRTC (aucun serveur à héberger).
  * - IndexedDB sauvegarde l'état localement : on retrouve la partie en revenant sur la même salle.
+ *
+ * `game` (surcouche multi-jeux, voir src/games.js) isole les parties de chaque jeu : sauvegarde
+ * IndexedDB « <game>:<salle> » et appId Trystero propre au jeu. Starboard ne le précise pas et garde
+ * exactement ses noms d'origine (« starboard:<salle> », APP_ID) : ses parties existantes ne bougent pas.
  */
-export function connect(roomId, { onPeers } = {}) {
+export function connect(roomId, { onPeers, game = 'starboard' } = {}) {
   const doc = new Y.Doc()
-  const persistence = new IndexeddbPersistence(`starboard:${roomId}`, doc)
+  const persistence = new IndexeddbPersistence(`${game}:${roomId}`, doc)
+  const appId = game === 'starboard' ? APP_ID : `${APP_ID}-${game}`
 
   // Si le réseau échoue (WebRTC indisponible…), l'outil reste utilisable en local au lieu de planter.
   let room
   try {
-    room = joinRoom({ appId: APP_ID }, roomId)
+    room = joinRoom({ appId }, roomId)
   } catch (err) {
     console.error('Connexion P2P impossible, mode hors ligne :', err)
     onPeers?.(-1)

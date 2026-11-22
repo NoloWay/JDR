@@ -68,7 +68,8 @@ function gameCard(game) {
   create.addEventListener('click', () => open())
 
   const recent = el('div', { className: 'launcher-recent', hidden: true })
-  if (game.root) listSavedRooms('starboard:').then((rooms) => {
+  // Même nom que le réglage `game` de connect() (src/net.js) : sauvegardes « <id>:<salle> »
+  listSavedRooms(`${game.id}:`).then((rooms) => {
     if (!rooms.length) return
     recent.hidden = false
     recent.append(el('span', { className: 'launcher-muted', textContent: 'Parties sur ce navigateur :' }),

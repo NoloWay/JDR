@@ -7,8 +7,10 @@
 //   1. créer games/<id>/index.html (+ son propre code) : une page indépendante, buildée automatiquement
 //      (vite.config.js découvre les dossiers games/*/index.html) ;
 //   2. l'ajouter ci-dessous avec `href: './games/<id>/'` ;
-//   3. isoler ses données de celles de Starboard : autre préfixe IndexedDB et autre appId Trystero
-//      (src/net.js utilise 'starboard:' et 'Noloway' en dur), sinon un même #code mélangerait les parties.
+//   3. isoler ses données de celles de Starboard : ouvrir la salle avec connect(roomId, { game: '<id>' })
+//      (src/net.js : sauvegarde « <id>:<salle> », appId Trystero « Noloway-<id> ») et préfixer ses clés
+//      localStorage par « <id>: ». Sinon un même #code mélangerait les parties des deux jeux.
+//      L'`id` sert aussi à l'accueil pour lister les parties enregistrées de chaque jeu.
 
 export const SITE_NAME = 'Plateaux JDR'
 
