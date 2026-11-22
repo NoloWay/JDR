@@ -14,6 +14,8 @@
 //   texte   : { deck, kind: 'text', x, y, text, size, color, angle }
 //   ligne   : { deck, kind: 'line', pts (ouverte), color, width, dash ('solid' | 'dash' | 'dot'), arrow ('none' | 'end' | 'both') }
 //   symbole : { deck, kind: 'stamp', x, y, icon, size, color }
+//   image   : { deck, kind: 'image', x, y (centre), w, h, angle, image (id dans la carte `images` du Y.Doc) }
+// Une zone peut aussi porter un motif : pattern ('hatch' | 'cross' | 'dots' | 'checker'), patternColor.
 // Tout élément peut porter locked: true (verrouillé : un glisser dessus déplace la vue).
 // Tant qu'un étage n'a jamais été modifié, on affiche sa version d'origine, générée depuis l'Excel
 // par `npm run plan-vaisseau` (src/data/gaia-plan.json) : voir seedItems().
@@ -349,7 +351,34 @@ export function autoTitleSize(g, s) {
 }
 
 // ---------- Textes, lignes et symboles (cartes) ----------
-export const MARKS = ['text', 'line', 'stamp']
+export const MARKS = ['text', 'line', 'stamp', 'image']
+
+// Motifs de remplissage (tuile de 16 unités, répétée dans la zone)
+export const PATTERNS = { hatch: 'Hachures', cross: 'Quadrillage oblique', dots: 'Points', checker: 'Damier' }
+const patterns = new Map()
+function patternFor(g, kind, color) {
+  const key = kind + color
+  if (!patterns.has(key)) {
+    const c = document.createElement('canvas')
+    c.width = c.height = 16
+    const p = c.getContext('2d')
+    p.strokeStyle = p.fillStyle = color
+    p.lineWidth = 1.5
+    const diag = (flip) => {
+      p.beginPath()
+      for (const o of [-16, 0, 16]) {
+        if (flip) { p.moveTo(o, 0); p.lineTo(o + 16, 16) } else { p.moveTo(o, 16); p.lineTo(o + 16, 0) }
+      }
+      p.stroke()
+    }
+    if (kind === 'hatch' || kind === 'cross') diag(false)
+    if (kind === 'cross') diag(true)
+    if (kind === 'dots') { p.beginPath(); p.arc(8, 8, 2, 0, Math.PI * 2); p.fill() }
+    if (kind === 'checker') { p.fillRect(0, 0, 8, 8); p.fillRect(8, 8, 8, 8) }
+    patterns.set(key, g.createPattern(c, 'repeat'))
+  }
+  return patterns.get(key)
+}
 const textLines = (it) => String(it.text ?? '').split('\n')
 /** Boîte d'un texte ou d'un symbole (approximative pour un texte : sans mesure, ni rotation). */
 export function markBox(it) {
@@ -362,6 +391,7 @@ export function markBox(it) {
     const hh = (lines.length * size * LINE) / 2
     return { minX: it.x - w, minY: it.y - hh, maxX: it.x + w, maxY: it.y + hh }
   }
+  if (it.kind === 'image') return { minX: it.x - it.w / 2, minY: it.y - it.h / 2, maxX: it.x + it.w / 2, maxY: it.y + it.h / 2 }
   if (it.kind === 'line') return bbox(it)
   return null
 }
@@ -372,7 +402,7 @@ export function markAt(entries, x, y, tol) {
     if (it.kind === 'line') {
       const d = Math.min(...it.pts.slice(1).map((p, i) => distToSeg(x, y, [...it.pts[i], ...p])))
       if (d <= Math.max(tol, (it.width ?? 4) / 2)) return e
-    } else if (it.kind === 'text' || it.kind === 'stamp') {
+    } else if (it.kind === 'text' || it.kind === 'stamp' || it.kind === 'image') {
       const b = markBox(it)
       if (x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY) return e
     }
@@ -465,10 +495,21 @@ export function entriesBounds(entries) {
  * Dessine un étage (ou une carte). Le contexte est déjà dans le repère monde (zoom / déplacement appliqués).
  * entries : [[id, élément]…] ; generic : carte de l'onglet Carte (portes sans pastille d'accréditation).
  */
-export function drawPlan(g, entries, zoom, gm = false, generic = false) {
+export function drawPlan(g, entries, zoom, gm = false, generic = false, bitmap = () => null) {
   const px = 1 / zoom // un pixel écran, en unités monde
   const items = entries.map(([, it]) => it)
   const shapes = items.filter((it) => it.kind === 'shape').sort(drawOrder)
+
+  // Images posées (sous les zones du même calque) ; cadre en pointillés tant qu'elles se chargent
+  for (const im of items.filter((it) => it.kind === 'image')) {
+    g.save()
+    g.translate(im.x, im.y)
+    g.rotate(((im.angle ?? 0) * Math.PI) / 180)
+    const bmp = bitmap(im.image)
+    if (bmp) g.drawImage(bmp, -im.w / 2, -im.h / 2, im.w, im.h)
+    else { g.strokeStyle = WALL; g.lineWidth = px; g.setLineDash([6 * px, 4 * px]); g.strokeRect(-im.w / 2, -im.h / 2, im.w, im.h) }
+    g.restore()
+  }
 
   // Fonds
   for (const s of shapes) {
@@ -476,8 +517,9 @@ export function drawPlan(g, entries, zoom, gm = false, generic = false) {
     if (s.type === 'engine') { g.shadowColor = '#3f7bff'; g.shadowBlur = 18 }
     g.globalAlpha = s.opacity ?? 1
     g.fill(shapePath(s))
-    g.globalAlpha = 1
     g.shadowBlur = 0
+    if (PATTERNS[s.pattern]) { g.fillStyle = patternFor(g, s.pattern, s.patternColor ?? '#eaf6ff'); g.globalAlpha *= 0.45; g.fill(shapePath(s)) }
+    g.globalAlpha = 1
   }
   // Murs (pièces), puis contour lumineux de la coque et des dômes
   g.lineJoin = 'round'

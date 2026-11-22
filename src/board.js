@@ -1,4 +1,4 @@
-import { h } from './dom.js'
+import { h, liveRender } from './dom.js'
 import { BADGES, DOOR_ACCESS, DOOR_LEVELS, ownerOf, stricterLevel } from './rules.js'
 import { CHARACTER_MIME } from './sheets.js'
 import { CELL, DECKS, deckSize, doorAt, drawPlan, entriesBounds, isRoomType, labelOf, resolveEntries, roomsAround, seedItems, shapeAt } from './shipMap.js'
@@ -13,6 +13,8 @@ import { setupMapTools } from './mapTools.js'
 //   board  : 'scene' → id de la scène affichée chez tout le monde (choisie par le MJ)
 //   tokens : id → { x, y, color, label, scene }  (coordonnées « monde », en pixels de la carte)
 //   mapPlan : id → élément dessiné sur une carte (mêmes éléments que le plan du Gaïa, deck = id de la carte)
+//   mapLibrary : id → { name, w, h, items: [[id, élément]…] }  (modèles réutilisables, coordonnées depuis 0, 0)
+//   scenes[id] d'une carte : gridType ('none' | 'square' | 'hex'), gridSize, gridX, gridY (décalage), gridSnap (jetons aimantés)
 // La caméra reste locale : chacun cadre comme il veut.
 // Les cartes (onglet Carte) sont indépendantes du vaisseau : leurs dessins vivent dans mapPlan et chaque carte
 // a ses propres jetons (un personnage peut avoir un jeton sur le vaisseau et un sur chaque carte).
@@ -60,9 +62,13 @@ export function setupBoard(ctx) {
   const plan = doc.getMap('plan') // éléments du plan du Gaïa (formes, portes, caméras), voir shipMap.js
   const doorLevels = doc.getMap('doorLevels') // ancien stockage des niveaux de portes : repris à la première modification d'un étage
   const mapPlan = doc.getMap('mapPlan') // dessins des cartes de l'onglet Carte (deck = id de la carte)
+  const mapLibrary = doc.getMap('mapLibrary') // modèles de la bibliothèque (éditeur de carte)
 
   const canvas = document.getElementById('board')
-  const g = canvas.getContext('2d')
+  const screen = canvas.getContext('2d')
+  let g = screen // remplacé le temps d'un export PNG
+  let target = null // export PNG : { cam, width, height } (sinon : l'écran)
+  const dpr = () => (target ? 1 : devicePixelRatio)
   const bar = document.getElementById('scene-bar')
 
   // ---------- Plan du Gaïa : version d'origine (Excel) tant que l'étage n'a jamais été modifié ----------
@@ -120,9 +126,65 @@ export function setupBoard(ctx) {
   const cams = {}
   let flash = null // { id, until } : jeton mis en évidence après une recherche
   // Une seule caméra pour tous les étages du vaisseau : changer d'étage garde le cadrage (les étages se superposent)
-  const cam = () => (cams[mode === 'ship' ? SHIP_SCENE : sceneId()] ??= { x: 0, y: 0, zoom: 1, fitted: false })
+  const cam = () => target?.cam ?? (cams[mode === 'ship' ? SHIP_SCENE : sceneId()] ??= { x: 0, y: 0, zoom: 1, fitted: false })
   const toWorld = (sx, sy) => ({ x: (sx - cam().x) / cam().zoom, y: (sy - cam().y) / cam().zoom })
   const view = () => canvas.getBoundingClientRect()
+
+  // ---------- Grille des cartes (optionnelle) ----------
+  const grid = () => {
+    const sc = mode === 'map' ? scene() : {}
+    return { type: sc.gridType ?? 'none', size: Number(sc.gridSize) || CELL, ox: Number(sc.gridX) || 0, oy: Number(sc.gridY) || 0, snap: !!sc.gridSnap }
+  }
+  /** Centre de la case (carrée ou hexagonale, pointe en haut) la plus proche d'un point. */
+  function cellCenter({ x, y }) {
+    const { type, size, ox, oy } = grid()
+    if (type === 'square') return { x: ox + (Math.floor((x - ox) / size) + 0.5) * size, y: oy + (Math.floor((y - oy) / size) + 0.5) * size }
+    const R = size / Math.sqrt(3) // rayon d'un hexagone de largeur size
+    const row = Math.round((y - oy) / (1.5 * R))
+    let best = null
+    for (let r = row - 1; r <= row + 1; r++) {
+      const shift = Math.abs(r % 2) === 1 ? size / 2 : 0
+      const cx = ox + shift + Math.round((x - ox - shift) / size) * size
+      const cy = oy + r * 1.5 * R
+      if (!best || Math.hypot(x - cx, y - cy) < Math.hypot(x - best.x, y - best.y)) best = { x: cx, y: cy }
+    }
+    return best
+  }
+  /** Position d'un jeton : au centre de sa case si la grille aimante les jetons. */
+  const snapToken = (p) => (mode === 'map' && grid().type !== 'none' && grid().snap ? cellCenter(p) : p)
+
+  function drawGrid(c) {
+    const { type, size, ox, oy } = grid()
+    if (type === 'none' || size * c.zoom < 6) return
+    const inv = g.getTransform().inverse()
+    const a = inv.transformPoint(new DOMPoint(0, 0))
+    const b = inv.transformPoint(new DOMPoint(g.canvas.width, g.canvas.height))
+    g.save()
+    g.strokeStyle = 'rgba(160, 220, 255, 0.22)'
+    g.lineWidth = 1 / c.zoom
+    g.beginPath()
+    if (type === 'square') {
+      for (let x = ox + Math.floor((a.x - ox) / size) * size; x <= b.x; x += size) { g.moveTo(x, a.y); g.lineTo(x, b.y) }
+      for (let y = oy + Math.floor((a.y - oy) / size) * size; y <= b.y; y += size) { g.moveTo(a.x, y); g.lineTo(b.x, y) }
+    } else {
+      const R = size / Math.sqrt(3)
+      for (let r = Math.floor((a.y - oy) / (1.5 * R)) - 1; oy + r * 1.5 * R <= b.y + R; r++) {
+        const shift = Math.abs(r % 2) === 1 ? size / 2 : 0
+        const cy = oy + r * 1.5 * R
+        for (let cx = ox + shift + Math.floor((a.x - ox - shift) / size - 1) * size; cx <= b.x + size; cx += size) {
+          for (let i = 0; i < 6; i++) { // hexagone pointe en haut
+            const t = -Math.PI / 2 + (i * Math.PI) / 3
+            const px = cx + R * Math.cos(t)
+            const py = cy + R * Math.sin(t)
+            if (i) g.lineTo(px, py); else g.moveTo(px, py)
+          }
+          g.closePath()
+        }
+      }
+    }
+    g.stroke()
+    g.restore()
+  }
 
   /** Emprise de tous les éléments de tous les étages (même cadre quel que soit l'étage affiché). */
   const shipBounds = () => entriesBounds(DECKS.flatMap((d) => deckEntries(d)))
@@ -182,12 +244,14 @@ export function setupBoard(ctx) {
   }
 
   function draw() {
-    const { width, height } = view()
+    const { width, height } = target ?? view()
     const c = cam()
     const s = scene()
-    g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+    const k = dpr()
+    g.setTransform(k, 0, 0, k, 0, 0)
     g.clearRect(0, 0, width, height)
-    g.setTransform(devicePixelRatio * c.zoom, 0, 0, devicePixelRatio * c.zoom, devicePixelRatio * c.x, devicePixelRatio * c.y)
+    if (target) { g.fillStyle = '#05070f'; g.fillRect(0, 0, width, height) } // fond de l'image exportée
+    g.setTransform(k * c.zoom, 0, 0, k * c.zoom, k * c.x, k * c.y)
 
     const bmp = mode === 'ship' ? null : bitmap(s.image)
     if (mode === 'ship') drawPlan(g, deckEntries(), c.zoom, ctx.me().isGM)
@@ -201,13 +265,16 @@ export function setupBoard(ctx) {
       const byId = new Map(ents)
       for (const l of ['decor', 'notes', 'gm']) {
         const part = ents.filter(([, it]) => layerOf(it, byId) === l)
-        if (part.length) drawPlan(g, part, c.zoom, ctx.me().isGM, true)
+        if (part.length) drawPlan(g, part, c.zoom, ctx.me().isGM, true, bitmap)
       }
+      drawGrid(c)
     }
     tools.drawUnder(g, c.zoom) // gabarits et dessins
-    tools.drawFog(g, g.getTransform()) // brouillard (onglet Carte)
-    // Carte vide (ni fond ni dessin) : invitation à importer une carte
-    placeholder.hidden = !(mode === 'map' && !s.image && !mapEntries().length && !mapEditor.active)
+    if (!target) {
+      tools.drawFog(g, g.getTransform()) // brouillard (onglet Carte)
+      // Carte vide (ni fond ni dessin) : invitation à importer une carte
+      placeholder.hidden = !(mode === 'map' && !s.image && !mapEntries().length && !mapEditor.active)
+    }
 
     // Pions de la scène (ceux des personnages cachés : invisibles aux joueurs, translucides pour le MJ)
     const r = tokenSize() * 0.4
@@ -240,6 +307,7 @@ export function setupBoard(ctx) {
       g.globalAlpha = 1
     })
 
+    if (target) return // export : ni poignées, ni outils en cours
     ed().drawOverlay(g, c.zoom)
     tools.drawAbove(g, c.zoom)
 
@@ -315,6 +383,7 @@ export function setupBoard(ctx) {
   })
 
   function endDrag(e) {
+    if (drag?.kind === 'token') { const t = tokens.get(drag.id); if (t) { const p = snapToken(t); if (p.x !== t.x || p.y !== t.y) tokens.set(drag.id, { ...t, ...p }) } }
     if (drag?.kind === 'edit') ed().pointerUp()
     if (drag?.kind === 'tool') tools.pointerUp()
     // Simple clic (sans déplacement) dans la vue Vaisseau, hors édition : ouvre la fiche de la porte cliquée
@@ -373,7 +442,7 @@ export function setupBoard(ctx) {
   function fogged(w) {
     if (ctx.me().isGM || !tools.fogOn()) return false
     const c = cam()
-    return tools.fogAt(Math.round((w.x * c.zoom + c.x) * devicePixelRatio), Math.round((w.y * c.zoom + c.y) * devicePixelRatio))
+    return !target && tools.fogAt(Math.round((w.x * c.zoom + c.x) * devicePixelRatio), Math.round((w.y * c.zoom + c.y) * devicePixelRatio))
   }
   // Un joueur voit toujours le jeton de son propre personnage, même caché par le MJ ou sous le brouillard
   const visible = (t) => tokenScene(t) === sceneId() && (ctx.me().isGM || look(t).mine || (!look(t).hidden && !fogged(t)))
@@ -386,7 +455,7 @@ export function setupBoard(ctx) {
     const c = characters.get(charId)
     if (!c) return
     const existing = [...tokens.entries()].find(([, t]) => t.charId === charId && space(tokenScene(t)) === space(sceneId()))
-    const pos = { x: world.x, y: world.y, scene: sceneId() }
+    const pos = { ...snapToken(world), scene: sceneId() }
     if (existing) tokens.set(existing[0], { ...existing[1], ...pos })
     else tokens.set(crypto.randomUUID(), { ...pos, charId, label: look({ charId }).label, color: look({ charId }).color })
   }
@@ -404,7 +473,7 @@ export function setupBoard(ctx) {
 
   function addToken(label) {
     const { width, height } = view()
-    const center = toWorld(width / 2, height / 2)
+    const center = snapToken(toWorld(width / 2, height / 2))
     tokens.set(crypto.randomUUID(), {
       x: center.x, y: center.y,
       color: COLORS[tokens.size % COLORS.length],
@@ -484,7 +553,7 @@ export function setupBoard(ctx) {
 
   // ---------- Éditeurs (MJ) : plan du Gaïa, et dessin générique des cartes ----------
   const editor = setupPlanEditor({
-    doc, plan, g,
+    doc, plan, g: screen,
     deck: () => deck,
     entries: () => deckEntries(),
     ensureSeeded,
@@ -493,7 +562,19 @@ export function setupBoard(ctx) {
     stage: canvas.parentElement,
   })
   const mapEditor = setupPlanEditor({
-    doc, plan: mapPlan, g, generic: true,
+    doc, plan: mapPlan, g: screen, generic: true,
+    library: mapLibrary,
+    viewCenter: () => { const { width, height } = view(); return toWorld(width / 2, height / 2) },
+    pickImage: () => pickFile('image/*').then(async (file) => {
+      if (!file) return null
+      try {
+        const img = await compressImage(file)
+        const id = crypto.randomUUID()
+        images.set(id, { type: img.type, data: img.data })
+        return { id, width: img.width, height: img.height }
+      } catch (err) { alert(`Impossible de lire cette image (${err.message}).`); return null }
+    }),
+    releaseImage,
     deck: () => mapScene(),
     entries: () => mapEntries(),
     ensureSeeded: () => {},
@@ -502,6 +583,86 @@ export function setupBoard(ctx) {
     stage: canvas.parentElement,
   })
   const ed = () => (mode === 'ship' ? editor : mapEditor)
+  mapLibrary.observe(() => mapEditor.libraryChanged())
+
+  /** Supprime une image partagée que plus rien n'utilise (fond de carte, image posée, modèle). */
+  function releaseImage(id) {
+    if (!id) return
+    const used = [...scenes.values()].some((x) => x.image === id) ||
+      [...mapPlan.values()].some((x) => x.image === id) ||
+      [...mapLibrary.values()].some((m) => m.items.some(([, x]) => x.image === id))
+    if (!used) images.delete(id)
+  }
+  /** Ouvre le sélecteur de fichiers ; résout avec le fichier choisi (ou null). */
+  function pickFile(accept) {
+    return new Promise((resolve) => {
+      const input = h('input', { type: 'file', accept })
+      input.addEventListener('change', () => resolve(input.files[0] ?? null))
+      input.click()
+    })
+  }
+
+  // ---------- Export / import d'une carte seule, export en image ----------
+  const download = (blob, name) => {
+    const a = h('a', { href: URL.createObjectURL(blob), download: name })
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+  const fileName = (name) => (name || 'carte').replace(/[\\/:*?"<>|]+/g, '_')
+
+  /** Fichier d'une carte : fond, dessins, images, jetons, gabarits, traits et brouillard. */
+  function exportMap() {
+    const id = sceneId()
+    const sc = scenes.get(id) ?? scene()
+    const items = Object.fromEntries([...mapPlan.entries()].filter(([, it]) => it.deck === id))
+    const used = new Set([sc.image, ...Object.values(items).map((it) => it.image)].filter(Boolean))
+    const imgs = {}
+    used.forEach((k) => { const v = images.get(k); if (v) imgs[k] = { type: v.type, base64: toBase64(v.data) } })
+    const pick = (name) => Object.fromEntries([...doc.getMap(name).entries()].filter(([, x]) => (x.scene ?? DEFAULT_SCENE) === id))
+    const data = { starboardMap: 1, scene: sc, images: imgs, items, tokens: pick('tokens'), templates: pick('templates'), drawings: pick('drawings'), fog: pick('fog') }
+    download(new Blob([JSON.stringify(data)], { type: 'application/json' }), `${fileName(sc.name)}.carte.json`)
+  }
+  /** Ouvre un fichier de carte comme nouvelle carte (nouveaux identifiants), affichée chez tout le monde. */
+  function importMap(data) {
+    const id = crypto.randomUUID()
+    const ids = new Map()
+    const nid = (k) => { if (!ids.has(k)) ids.set(k, crypto.randomUUID()); return ids.get(k) }
+    const order = Math.max(0, ...[...scenes.values()].map((x) => x.order ?? 0)) + 1
+    doc.transact(() => {
+      ensureDefaultScene()
+      Object.entries(data.images ?? {}).forEach(([k, v]) => { if (!images.has(k)) images.set(k, { type: v.type, data: fromBase64(v.base64) }) })
+      scenes.set(id, { ...data.scene, order })
+      Object.entries(data.items ?? {}).forEach(([k, it]) => mapPlan.set(nid(k), { ...it, deck: id, ...(it.host ? { host: nid(it.host) } : {}) }))
+      for (const name of ['tokens', 'templates', 'drawings', 'fog']) {
+        const m = doc.getMap(name)
+        Object.values(data[name] ?? {}).forEach((x) => m.set(crypto.randomUUID(), { ...x, scene: id }))
+      }
+      board.set('scene', id)
+    })
+    cams[id] = undefined
+  }
+  async function openMapFile(file) {
+    try {
+      const data = JSON.parse(await file.text())
+      if (!data.starboardMap) return alert('Ce fichier n’est pas une carte Starboard (fichier « .carte.json »).')
+      importMap(data)
+    } catch { alert('Fichier de carte illisible.') }
+  }
+  /** Image PNG de la carte (fond, dessins, grille, jetons ; sans brouillard ni calques masqués), 4096 px au plus. */
+  function exportPNG() {
+    const b = mapBounds()
+    if (!b) return alert('La carte est vide.')
+    const pad = 20
+    const scale = Math.min(2, 4096 / Math.max(b.width, b.height))
+    const off = document.createElement('canvas')
+    off.width = Math.ceil(b.width * scale + pad * 2)
+    off.height = Math.ceil(b.height * scale + pad * 2)
+    target = { cam: { x: pad - b.x * scale, y: pad - b.y * scale, zoom: scale }, width: off.width, height: off.height }
+    g = off.getContext('2d')
+    try { draw() } finally { g = screen; target = null }
+    off.toBlob((blob) => download(blob, `${fileName(scene().name)}.png`), 'image/png')
+    draw()
+  }
 
   // Règle, gabarits, crayon, brouillard
   const tools = setupMapTools({
@@ -514,13 +675,20 @@ export function setupBoard(ctx) {
   // Carte vide : « Importer une carte » (MJ : choisir une image de fond ; joueurs : simple mention)
   const placeholder = h('button', {
     class: 'map-placeholder', hidden: true,
-    onclick: () => { if (ctx.me().isGM) chooseImage() },
+    onclick: () => {
+      if (!ctx.me().isGM) return
+      pickFile('image/*,.json').then((file) => {
+        if (!file) return
+        if (file.name.endsWith('.json')) openMapFile(file)
+        else setBackground(file)
+      })
+    },
   })
   canvas.parentElement.append(placeholder)
   const renderPlaceholder = () => {
     placeholder.disabled = !ctx.me().isGM
     placeholder.textContent = ctx.me().isGM ? 'Importer une carte' : 'Aucune carte pour l’instant'
-    placeholder.title = ctx.me().isGM ? 'Choisir une image de fond, ou dessiner la carte avec « ✎ Modifier la carte »' : ''
+    placeholder.title = ctx.me().isGM ? 'Choisir une image de fond ou un fichier de carte (.carte.json), ou dessiner la carte avec « ✎ Modifier la carte »' : ''
   }
   renderPlaceholder()
 
@@ -536,28 +704,24 @@ export function setupBoard(ctx) {
     scenes.set(sceneId(), { ...scenes.get(sceneId()), ...changes })
   }
 
-  async function chooseImage() {
-    const input = h('input', { type: 'file', accept: 'image/*' })
-    input.addEventListener('change', async () => {
-      const file = input.files[0]
-      if (!file) return
-      try {
-        const img = await compressImage(file)
-        const id = crypto.randomUUID()
-        const old = scene().image
-        doc.transact(() => {
-          images.set(id, { type: img.type, data: img.data })
-          patchScene({ image: id, width: img.width, height: img.height })
-          if (old && old !== id && ![...scenes.values()].some((s) => s.image === old)) images.delete(old)
-        })
-        cam().fitted = false
-        const kb = Math.round(img.data.byteLength / 1024)
-        if (kb > 3000) alert(`Image lourde (${kb} Ko) : la synchronisation peut prendre quelques secondes.`)
-      } catch (err) {
-        alert(`Impossible de lire cette image (${err.message}).`)
-      }
-    })
-    input.click()
+  const chooseImage = () => pickFile('image/*').then((file) => file && setBackground(file))
+  /** Image de fond de la carte affichée (compressée en WebP, partagée). */
+  async function setBackground(file) {
+    try {
+      const img = await compressImage(file)
+      const id = crypto.randomUUID()
+      const old = scene().image
+      doc.transact(() => {
+        images.set(id, { type: img.type, data: img.data })
+        patchScene({ image: id, width: img.width, height: img.height })
+      })
+      if (old && old !== id) releaseImage(old)
+      cam().fitted = false
+      const kb = Math.round(img.data.byteLength / 1024)
+      if (kb > 3000) alert(`Image lourde (${kb} Ko) : la synchronisation peut prendre quelques secondes.`)
+    } catch (err) {
+      alert(`Impossible de lire cette image (${err.message}).`)
+    }
   }
 
   function newScene() {
@@ -582,7 +746,9 @@ export function setupBoard(ctx) {
       scenes.delete(id)
       if (img && ![...scenes.values()].some((s) => s.image === img)) images.delete(img)
       tokens.forEach((t, tid) => { if (tokenScene(t) === id) tokens.delete(tid) })
-      mapPlan.forEach((it, pid) => { if (it.deck === id) mapPlan.delete(pid) })
+      const freed = []
+      mapPlan.forEach((it, pid) => { if (it.deck === id) { mapPlan.delete(pid); if (it.image) freed.push(it.image) } })
+      freed.forEach(releaseImage)
       tools.forgetScene(id)
       board.set('scene', DEFAULT_SCENE)
     })
@@ -638,47 +804,72 @@ export function setupBoard(ctx) {
           list.map(([id, sc]) => h('option', { value: id, selected: id === sceneId() }, sc.name)))
         : h('span', { class: 'scene-name' }, s.name),
       isGM && h('button', { class: 'small', onclick: newScene }, '+ Carte'),
-      isGM && h('button', { class: 'small', onclick: chooseImage }, s.image ? 'Changer le fond' : 'Image de fond'),
-      isGM && s.image && h('button', {
-        class: 'small', title: 'Retirer l’image de fond (les dessins et les jetons restent)',
-        onclick: () => {
-          if (!confirm('Retirer l’image de fond de cette carte ?')) return
-          const old = s.image
-          doc.transact(() => {
-            patchScene({ image: null })
-            if (![...scenes.values()].some((x) => x.image === old)) images.delete(old)
-          })
-        },
-      }, 'Sans fond'),
       isGM && h('button', {
-        class: 'small',
-        onclick: () => { const n = prompt('Nom de la scène ?', s.name)?.trim(); if (n) patchScene({ name: n }) },
-      }, 'Renommer'),
-      isGM && h('label', { class: 'check', title: 'Taille des jetons, en pixels de la carte' }, 'Jetons',
-        h('input', {
-          type: 'number', min: 4, max: 400, value: tokenSize(), class: 'short',
-          onchange: (e) => patchScene({ grid: Math.max(4, Math.min(400, Number(e.target.value) || 50)) }),
-        })),
-      isGM && sceneId() !== DEFAULT_SCENE && h('button', { class: 'small danger', onclick: deleteScene }, 'Supprimer'),
-      isGM && h('label', { class: 'check', title: 'Échelle de la règle et des gabarits' }, '1 case =',
-        h('input', {
-          type: 'number', min: 0.01, step: 'any', class: 'short', value: s.unitPerCell ?? 1,
-          onchange: (e) => patchScene({ unitPerCell: Number(e.target.value) || 1 }),
-        }),
-        h('input', {
-          class: 'short', value: s.unitName ?? 'cases', placeholder: 'unité',
-          onchange: (e) => patchScene({ unitName: e.target.value.trim() || 'cases' }),
-        })),
+        class: 'small', title: 'Ouvrir un fichier de carte (.carte.json) comme nouvelle carte',
+        onclick: () => pickFile('.json').then((file) => file && openMapFile(file)),
+      }, 'Ouvrir…'),
+      isGM && h('button', {
+        class: settingsOpen ? 'small primary' : 'small', title: 'Nom, fond, jetons, échelle, grille, export',
+        onclick: () => { settingsOpen = !settingsOpen; renderSettings(); renderBar() },
+      }, '⚙ Réglages'),
       isGM && h('span', { class: 'sep' }),
       isGM && h('button', {
         class: tools.fogOpen ? 'small primary' : 'small', title: 'Brouillard de guerre : cacher la carte et en révéler des zones',
-        onclick: () => { mapEditor.setActive(false); tools.toggleFog(); renderBar() },
+        onclick: () => { mapEditor.setActive(false); settingsOpen = false; renderSettings(); tools.toggleFog(); renderBar() },
       }, '☁ Brouillard'),
       isGM && h('button', {
         class: mapEditor.active ? 'small primary' : 'small',
-        title: 'Dessiner sur la carte (zones, portes, vitres)',
-        onclick: () => { if (tools.fogOpen) tools.toggleFog(); mapEditor.setActive(!mapEditor.active); renderBar() },
+        title: 'Dessiner sur la carte (zones, portes, textes, images…)',
+        onclick: () => { if (tools.fogOpen) tools.toggleFog(); settingsOpen = false; renderSettings(); mapEditor.setActive(!mapEditor.active); renderBar() },
       }, mapEditor.active ? 'Terminer' : '✎ Modifier la carte'),
+    ].filter(Boolean))
+  }
+
+  // Réglages de la carte (MJ) : panneau sous la barre
+  let settingsOpen = false
+  const settings = h('div', { class: 'plan-tools map-settings' })
+  const drawSettings = liveRender(settings, buildSettings)
+  function renderSettings() {
+    if (!settingsOpen || mode !== 'map' || !ctx.me().isGM) { settingsOpen = false; settings.remove(); return }
+    if (!settings.isConnected) canvas.parentElement.append(settings)
+    drawSettings()
+  }
+  function buildSettings() {
+    const s = scene()
+    const gr = grid()
+    const num = (key, value, attrs = {}) => h('input', {
+      type: 'number', step: 'any', class: 'short', value, ...attrs,
+      onchange: (e) => patchScene({ [key]: Number(e.target.value) || 0 }),
+    })
+    const row = (label, ...kids) => h('label', { class: 'field' }, h('span', {}, label), h('div', { class: 'tool-row' }, ...kids))
+    settings.append(...[
+      h('h4', {}, 'Réglages de la carte'),
+      row('Nom', h('input', { value: s.name ?? '', onchange: (e) => { const n = e.target.value.trim(); if (n) patchScene({ name: n }) } })),
+      row('Fond',
+        h('button', { class: 'small', onclick: chooseImage }, s.image ? 'Changer' : 'Choisir une image'),
+        s.image && h('button', {
+          class: 'small', title: 'Retirer l’image de fond (les dessins et les jetons restent)',
+          onclick: () => {
+            if (!confirm('Retirer l’image de fond de cette carte ?')) return
+            const old = s.image
+            patchScene({ image: null })
+            releaseImage(old)
+          },
+        }, 'Retirer')),
+      row('Taille des jetons (px)', num('grid', tokenSize(), { min: 4, max: 400 })),
+      row('Échelle : 1 case =', num('unitPerCell', s.unitPerCell ?? 1, { min: 0.01 }),
+        h('input', { class: 'short', value: s.unitName ?? 'cases', placeholder: 'unité', onchange: (e) => patchScene({ unitName: e.target.value.trim() || 'cases' }) })),
+      row('Grille',
+        h('select', { onchange: (e) => patchScene({ gridType: e.target.value }) },
+          [['none', 'Aucune'], ['square', 'Carrée'], ['hex', 'Hexagonale']].map(([k, l]) => h('option', { value: k, selected: k === gr.type }, l))),
+        gr.type !== 'none' && num('gridSize', gr.size, { min: 8, title: 'Taille d’une case (px)' })),
+      gr.type !== 'none' && row('Décalage X / Y', num('gridX', gr.ox), num('gridY', gr.oy)),
+      gr.type !== 'none' && h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: gr.snap, onchange: (e) => patchScene({ gridSnap: e.target.checked }) }), ' Aimanter les jetons au centre des cases'),
+      row('Fichier',
+        h('button', { class: 'small', title: 'Enregistrer cette carte seule (fond, dessins, jetons…) pour la rouvrir ailleurs', onclick: exportMap }, 'Exporter la carte'),
+        h('button', { class: 'small', title: 'Image PNG de la carte (sans brouillard)', onclick: exportPNG }, 'Image PNG')),
+      sceneId() !== DEFAULT_SCENE && h('button', { class: 'small danger', onclick: () => { settingsOpen = false; renderSettings(); deleteScene() } }, 'Supprimer la carte'),
     ].filter(Boolean))
   }
 
@@ -697,6 +888,7 @@ export function setupBoard(ctx) {
       fit()
     }
     renderBar()
+    renderSettings()
     draw()
   }
   scenes.observe(onSceneChange)
@@ -777,6 +969,7 @@ export function setupBoard(ctx) {
       if (!ctx.me().isGM) { editor.setActive(false); mapEditor.setActive(false) } // l'édition est réservée au MJ
       renderPlaceholder()
       tools.rerender()
+      renderSettings()
       renderBar()
       renderDoor()
       draw()
@@ -788,6 +981,7 @@ export function setupBoard(ctx) {
       if (mode !== 'ship' && editor.active) editor.setActive(false)
       if (mode !== 'map' && mapEditor.active) mapEditor.setActive(false)
       tools.rerender()
+      renderSettings()
       lastScene = sceneId()
       lastImage = scene().image
       if (!cam().fitted) fit()
@@ -795,6 +989,7 @@ export function setupBoard(ctx) {
       draw()
     },
     /** Données à exporter (images encodées en base64 dans le JSON). */
+    snapToken,
     exportData() {
       const imgs = {}
       images.forEach((v, id) => { imgs[id] = { type: v.type, base64: toBase64(v.data) } })

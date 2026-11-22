@@ -7,6 +7,7 @@ import { CELL } from './shipMap.js'
 // Données partagées (Y.Doc) :
 //   templates : id → { scene, kind ('circle' | 'cone' | 'line'), x, y, x2, y2, color, owner }  (gabarits)
 //   drawings  : id → { scene, pts: [[x, y]…], color, width, owner }                           (crayon)
+//   pings     : id → { scene, x, y, color, owner }  (repère d'alerte, effacé par son auteur après quelques secondes)
 //   fog       : id → { scene, t, mode ('reveal' | 'hide'), kind ('rect' | 'brush' | 'all'), x, y, w, h | pts, r }
 //               opérations appliquées dans l'ordre de t sur une carte d'abord entièrement couverte
 //   scenes[id] : fog (brouillard actif), unitPerCell, unitName (échelle de la règle)
@@ -21,7 +22,9 @@ const MEASURE_TOOLS = [
   ['cone', '◸', 'Gabarit en cône : glisser depuis la pointe (visible par tous)'],
   ['line', '━', 'Gabarit en ligne, une case de large : glisser du départ à l’arrivée (visible par tous)'],
   ['pencil', '✏', 'Crayon : dessiner à main levée (visible par tous)'],
+  ['ping', '📍', 'Signaler : cliquer pour faire clignoter un point chez tout le monde'],
 ]
+const PING_MS = 3000
 const FOG_TOOLS = [
   ['reveal-rect', '▭ Révéler', 'Révéler un rectangle'],
   ['reveal-brush', '● Révéler', 'Révéler au pinceau'],
@@ -47,6 +50,8 @@ export function setupMapTools(ctx) {
   const templates = ctx.doc.getMap('templates')
   const drawings = ctx.doc.getMap('drawings')
   const fog = ctx.doc.getMap('fog')
+  const pings = ctx.doc.getMap('pings')
+  const pingSeen = new Map() // id → instant de réception (horloge locale : les horloges des joueurs diffèrent)
 
   let tool = null // outil de mesure / dessin actif
   let fogTool = null // outil de brouillard actif (MJ), panneau ouvert
@@ -62,7 +67,9 @@ export function setupMapTools(ctx) {
   const unit = () => (ctx.mode() === 'map'
     ? { per: Number(ctx.scene().unitPerCell) || 1, name: ctx.scene().unitName || 'cases' }
     : { per: 1, name: 'cases' })
-  const measure = (len) => `${fmt((len / CELL) * unit().per)} ${unit().name}`
+  // Une « case » = celle de la grille de la carte si elle en a une
+  const cell = () => (ctx.mode() === 'map' && (ctx.scene().gridType ?? 'none') !== 'none' ? Number(ctx.scene().gridSize) || CELL : CELL)
+  const measure = (len) => `${fmt((len / cell()) * unit().per)} ${unit().name}`
 
   // ---------- Brouillard ----------
   const fogOn = () => ctx.mode() === 'map' && !!ctx.scene().fog
@@ -161,7 +168,32 @@ export function setupMapTools(ctx) {
   }
 
   /** Au-dessus de tout : geste en cours (règle, aperçu de gabarit, trait, rectangle de brouillard). */
+  function drawPings(g, zoom) {
+    const now = performance.now()
+    let live = false
+    for (const [id, p] of pings.entries()) {
+      if (!here(p)) continue
+      if (!pingSeen.has(id)) pingSeen.set(id, now)
+      const age = (now - pingSeen.get(id)) / PING_MS
+      if (age > 1) continue
+      live = true
+      g.save()
+      g.strokeStyle = g.fillStyle = p.color
+      for (let i = 0; i < 3; i++) { // trois ondes qui s'élargissent
+        const k = (age * 2 + i / 3) % 1
+        g.globalAlpha = (1 - k) * (1 - age * 0.5)
+        g.lineWidth = 3 / zoom
+        g.beginPath(); g.arc(p.x, p.y, (8 + k * 50) / zoom, 0, Math.PI * 2); g.stroke()
+      }
+      g.globalAlpha = 1
+      g.beginPath(); g.arc(p.x, p.y, 5 / zoom, 0, Math.PI * 2); g.fill()
+      g.restore()
+    }
+    if (live) requestAnimationFrame(() => ctx.draw())
+  }
+
   function drawAbove(g, zoom) {
+    drawPings(g, zoom)
     if (!drag) return
     const { from, to } = drag
     g.save()
@@ -192,6 +224,12 @@ export function setupMapTools(ctx) {
   // ---------- Souris (le plateau appelle ces fonctions quand active() est vrai) ----------
   const active = () => !!(fogTool || tool)
   function pointerDown(w) {
+    if (tool === 'ping') {
+      const id = crypto.randomUUID()
+      pings.set(id, { scene: ctx.sceneId(), x: w.x, y: w.y, color, owner: ctx.me().name })
+      setTimeout(() => pings.delete(id), PING_MS + 500)
+      return
+    }
     drag = { from: w, to: w, pts: [[w.x, w.y]] }
     ctx.draw()
   }
@@ -308,6 +346,7 @@ export function setupMapTools(ctx) {
   templates.observe(() => ctx.draw())
   drawings.observe(() => ctx.draw())
   fog.observe(() => ctx.draw())
+  pings.observe(() => ctx.draw())
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && (tool || drag)) { tool = null; drag = null; renderBar(); ctx.draw() }
   })

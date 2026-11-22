@@ -3,7 +3,7 @@ import { h, liveRender } from './dom.js'
 import { DOOR_LEVELS } from './rules.js'
 import {
   CELL, DECKS, SHAPE_TYPES, ICON_NAMES, ICON_SVG, iconOf, bbox, shapeAt, doorAt, cameraAt, shapePath, isRoomType, titleAnchor, autoTitleSize,
-  attachToWall, resolveItem, wallParam, wallSeg, markAt, markBox,
+  attachToWall, resolveItem, wallParam, wallSeg, markAt, markBox, PATTERNS,
 } from './shipMap.js'
 
 // Éditeur du plan du Gaïa (MJ) : formes, portes, caméras. Toutes les modifications vont dans la carte
@@ -44,8 +44,9 @@ const TOOLS = [
   ['line', '╱', 'Ligne / flèche : cliquer chaque point, puis Entrée ou double-clic pour finir (routes, rivières, trajectoires)'],
   ['text', 'T', 'Texte : cliquer pour le poser'],
   ['stamp', '★', 'Symbole : cliquer pour le poser (planète, danger, objectif…)'],
+  ['image', '🖼', 'Image : cliquer pour choisir un fichier et le poser (vaisseau, bâtiment…)'],
 ]
-const MAP_ONLY = ['line', 'text', 'stamp']
+const MAP_ONLY = ['line', 'text', 'stamp', 'image']
 // Calques des cartes, dans l'ordre de dessin ; « MJ seulement » est invisible aux joueurs
 const LAYERS = [['decor', 'Décor'], ['notes', 'Annotations'], ['gm', 'MJ seulement']]
 
@@ -58,7 +59,7 @@ function regular(cx, cy, r, n, start) {
 }
 const round = (v) => Math.round(v * 10) / 10
 /** append() qui ignore les éléments conditionnels absents (false / null) */
-const add = (el, ...kids) => el.append(...kids.flat().filter(Boolean))
+const add = (el, ...kids) => el.append(...kids.flat(Infinity).filter(Boolean))
 const orthoStart = (n) => -Math.PI / 2 + (n % 4 === 0 ? Math.PI / n : 0)
 
 /** Redresse les côtés presque horizontaux / verticaux (moins de 20°). */
@@ -114,7 +115,22 @@ const LINKED = new Set(['hull', 'engine']) // même nom = même objet sur tous l
 const onWall = (it) => it.kind === 'door' || it.kind === 'window'
 /** Coque verrouillée par défaut : un glisser dessus déplace la vue, pas la coque. */
 const isLocked = (it) => !!it && (it.locked ?? (it.kind === 'shape' && it.type === 'hull'))
-const atPoint = (it) => it.kind === 'camera' || it.kind === 'text' || it.kind === 'stamp' // posés en (x, y)
+const atPoint = (it) => ['camera', 'text', 'stamp', 'image'].includes(it.kind) // posés en (x, y)
+/** Tourne un point autour de c (angle a en radians). */
+const rotPt = ([x, y], c, a) => {
+  const dx = x - c.x
+  const dy = y - c.y
+  return [round(c.x + dx * Math.cos(a) - dy * Math.sin(a)), round(c.y + dx * Math.sin(a) + dy * Math.cos(a))]
+}
+/** Tourne un élément autour de c ; portes et vitres accrochées suivent leur forme d'elles-mêmes. */
+function rotateItem(it, c, a) {
+  if (onWall(it)) return it
+  if (it.pts) return { ...it, pts: it.pts.map((p) => rotPt(p, c, a)) }
+  if (it.circle) { const [x, y] = rotPt([it.circle.x, it.circle.y], c, a); return { ...it, circle: { ...it.circle, x, y } } }
+  const [x, y] = rotPt([it.x, it.y], c, a)
+  return { ...it, x, y, ...(it.kind === 'stamp' ? {} : { angle: Math.round((it.angle ?? 0) + (a * 180) / Math.PI) }) }
+}
+const SPIN = 28 // distance de la poignée de rotation au-dessus de l'élément (pixels écran)
 const geomOf = (it) => (it.circle ? { circle: it.circle } : { pts: it.pts })
 const centerOf = (it) => { const b = bbox(it); return [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2] }
 /** Valeur v (ou v ± 1) la plus proche de ref : position sur un cercle, qui boucle. */
@@ -128,7 +144,8 @@ function translate(it, dx, dy) {
 }
 
 /**
- * ctx : { doc, plan, deck(), entries(), ensureSeeded(deck), zoom(), draw(), g, stage, generic }
+ * ctx : { doc, plan, deck(), entries(), ensureSeeded(deck), zoom(), draw(), g, stage, generic,
+ *         cartes seulement : pickImage() → Promise<{ id, width, height } | null>, releaseImage(id), library (Y.Map), viewCenter() }
  */
 export function setupPlanEditor(ctx) {
   const generic = !!ctx.generic
@@ -188,8 +205,10 @@ export function setupPlanEditor(ctx) {
   }
   /** Supprime un élément et, pour une pièce, les portes et vitres de ses murs. */
   function del(id) {
+    const it = raw(id)
     ctx.plan.delete(id)
     for (const [cid] of hostedBy(id)) ctx.plan.delete(cid)
+    if (it?.kind === 'image') ctx.releaseImage?.(it.image)
   }
   /** Raccroche aux murs les portes d'un étage copié avant que les portes ne suivent leurs pièces. */
   function attachLoose() {
@@ -231,6 +250,28 @@ export function setupPlanEditor(ctx) {
     const idMap = new Map()
     return [...pairs].sort(([, a], [, b]) => !!a.host - !!b.host).map(([oid, it]) => copyTo(it, deck, idMap, oid)).filter(Boolean)
   }
+  // ---------- Bibliothèque de modèles (cartes) : formes réutilisables d'une carte à l'autre ----------
+  /** Enregistre des éléments (et les portes de leurs murs) comme modèle, ramenés à l'origine. */
+  function saveModel(pairs) {
+    const name = prompt('Nom du modèle ?', 'Nouveau modèle')?.trim()
+    if (!name) return
+    const ids = new Set(pairs.map(([id]) => id))
+    const all = [...pairs, ...pairs.flatMap(([id]) => hostedBy(id)).filter(([id]) => !ids.has(id))]
+    const b = groupBox(pairs.filter(([, it]) => !it.host))
+    const items = all.map(([id, it]) => { const { deck, ...rest } = translate(get(id) ?? it, -b.minX, -b.minY); return [id, rest] })
+    ctx.library.set(crypto.randomUUID(), { name, w: b.maxX - b.minX, h: b.maxY - b.minY, items })
+  }
+  /** Pose un modèle au centre de la vue. */
+  function insertModel(id) {
+    const m = ctx.library?.get(id)
+    if (!m) return
+    const c = ctx.viewCenter()
+    const dx = Math.round((c.x - m.w / 2) / SNAP) * SNAP
+    const dy = Math.round((c.y - m.h / 2) / SNAP) * SNAP
+    selectAll(copyAll(m.items.map(([oid, it]) => [oid, translate(it, dx, dy)]), ctx.deck()))
+  }
+  let model = null // modèle choisi dans la liste
+
   const snap = (w, free) => (free ? { x: round(w.x), y: round(w.y) } : { x: Math.round(w.x / SNAP) * SNAP, y: Math.round(w.y / SNAP) * SNAP })
 
   // ---------- Panneaux ----------
@@ -280,6 +321,18 @@ export function setupPlanEditor(ctx) {
           }),
           h('label', { class: 'check', title: 'Calque des nouveaux éléments' },
             h('input', { type: 'radio', name: 'active-layer', checked: activeLayer === k, onchange: () => { activeLayer = k } }), ` ${l}`)))),
+      generic && ctx.library && h('div', { class: 'layers' }, h('b', {}, 'Modèles'),
+        ctx.library.size
+          ? h('div', { class: 'tool-row' },
+            h('select', { onchange: (e) => { model = e.target.value } }, [...ctx.library.entries()]
+              .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'fr'))
+              .map(([k, m], i) => { if (!ctx.library.has(model) && i === 0) model = k; return h('option', { value: k, selected: k === model }, m.name) })),
+            h('button', { class: 'small', title: 'Poser le modèle au centre de la vue', onclick: () => insertModel(model) }, 'Insérer'),
+            h('button', {
+              class: 'icon', title: 'Retirer ce modèle de la bibliothèque',
+              onclick: () => { const m = ctx.library.get(model); if (m && confirm(`Retirer « ${m.name} » de la bibliothèque ?`)) ctx.library.delete(model) },
+            }, '×'))
+          : h('p', { class: 'hint' }, 'Sélectionne des éléments puis « Enregistrer comme modèle » pour les réutiliser sur d’autres cartes.')),
       h('p', { class: 'hint' }, `Alt : sans aimantation · Flèches : déplacer d’un cran (Maj : une case) · Suppr : effacer · Ctrl+clic : sélection multiple · Ctrl+C / Ctrl+V : copier, y compris vers ${generic ? 'une autre carte' : 'un autre étage'} · Échap : désélectionner · molette / clic milieu : vue`),
     )
   }
@@ -309,6 +362,8 @@ export function setupPlanEditor(ctx) {
         h('p', { class: 'hint' }, 'Glisser l’un d’eux ou utiliser les flèches pour tout déplacer ; tirer un coin du cadre pour tout redimensionner (Maj : proportions gardées). Ctrl+clic pour ajouter ou retirer un élément.'),
         !generic && h('div', { class: 'tool-row' }, target,
           h('button', { class: 'small', title: 'Copier la sélection sur l’étage choisi, au même endroit', onclick: () => copyAll(groupItems(), target.value) }, 'Copier vers')),
+        generic && ctx.library && h('button', { class: 'small', onclick: () => saveModel(groupItems()) }, '★ Enregistrer comme modèle'),
+        h('p', { class: 'hint' }, 'La poignée ronde au-dessus du cadre fait tourner la sélection.'),
         h('button', { class: 'small danger', onclick: removeGroup }, 'Supprimer la sélection'))
       return
     }
@@ -320,7 +375,10 @@ export function setupPlanEditor(ctx) {
       return
     }
     const patch = (changes) => set(selected, { ...get(selected), ...changes })
-    const remove = h('button', { class: 'small danger', onclick: () => { ctx.doc.transact(() => del(selected)); select(null) } }, 'Supprimer')
+    const del1 = h('button', { class: 'small danger', onclick: () => { ctx.doc.transact(() => del(selected)); select(null) } }, 'Supprimer')
+    const remove = generic && ctx.library && !it.host
+      ? [h('button', { class: 'small', onclick: () => saveModel([[selected, it]]) }, '★ Enregistrer comme modèle'), del1]
+      : del1
     // Copier vers un autre étage (même position)
     const target = h('select', {}, DECKS.filter((d) => d !== ctx.deck()).map((d) => h('option', { value: d }, `Étage ${d.replace('-', '−')}`)))
     const copyRow = !generic && h('div', { class: 'tool-row' }, target,
@@ -342,6 +400,10 @@ export function setupPlanEditor(ctx) {
           field('Contour (épaisseur 0 = aucun)', h('div', { class: 'tool-row' },
             colorInput(it.stroke ?? '#38e8ff', (stroke) => patch({ stroke })),
             numInput(it.strokeWidth ?? CELL * 0.07, 0, 20, (strokeWidth) => patch({ strokeWidth })))),
+          field('Motif', h('div', { class: 'tool-row' },
+            h('select', { onchange: (e) => patch({ pattern: e.target.value || null }) },
+              [['', 'Aucun'], ...Object.entries(PATTERNS)].map(([k, l]) => h('option', { value: k, selected: k === (it.pattern ?? '') }, l))),
+            it.pattern && colorInput(it.patternColor ?? '#eaf6ff', (patternColor) => patch({ patternColor })))),
           lockBox(it, patch)]
           : field('Type', h('select', { onchange: (e) => patch({ type: e.target.value }) },
             Object.entries(SHAPE_TYPES).map(([k, l]) => h('option', { value: k, selected: k === it.type }, l)))),
@@ -406,6 +468,15 @@ export function setupPlanEditor(ctx) {
         field('Taille et couleur', h('div', { class: 'tool-row' },
           numInput(it.size ?? CELL, 8, 600, (size) => patch({ size })),
           colorInput(it.color ?? '#eaf6ff', (color) => patch({ color })))),
+        lockBox(it, patch), remove)
+    } else if (it.kind === 'image') {
+      add(props,
+        h('h4', {}, 'Image'),
+        field('Largeur (la hauteur suit)', numInput(it.w, 8, 8000, (w) => patch({ w, h: round((it.h * w) / it.w) }))),
+        field(`Rotation (${Math.round(it.angle ?? 0)}°)`, h('input', {
+          type: 'range', min: -180, max: 180, step: 1, value: Math.round(it.angle ?? 0), oninput: (e) => patch({ angle: Number(e.target.value) }),
+        })),
+        h('p', { class: 'hint' }, 'Coin bas-droit : redimensionner ; poignée ronde : tourner.'),
         lockBox(it, patch), remove)
     } else if (it.kind === 'door' && generic) {
       add(props,
@@ -472,6 +543,11 @@ export function setupPlanEditor(ctx) {
       maxX: Math.max(...boxes.map((b) => b.maxX)), maxY: Math.max(...boxes.map((b) => b.maxY)),
     }
   }
+  /** Poignée de rotation du groupe, au-dessus de son cadre. */
+  function groupSpin() {
+    const b = groupBox(groupItems())
+    return { x: (b.minX + b.maxX) / 2, y: b.minY - SPIN / ctx.zoom(), c: { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } }
+  }
   /** Coins du cadre du groupe ; o = coin opposé (point fixe de la mise à l'échelle). */
   function groupCorners() {
     const b = groupBox(groupItems())
@@ -483,6 +559,10 @@ export function setupPlanEditor(ctx) {
     const q = (v) => (free ? round(v) : Math.round(v / SNAP) * SNAP)
     const f = (x, y) => [q(o.x + (x - o.x) * sx), q(o.y + (y - o.y) * sy)]
     if (it.kind === 'door') { const [x1, y1, x2, y2] = it.seg; return { ...it, seg: [...f(x1, y1), ...f(x2, y2)] } }
+    if (it.kind === 'image') {
+      const [x, y] = f(it.x, it.y)
+      return { ...it, x, y, w: Math.max(8, round(it.w * sx)), h: Math.max(8, round(it.h * sy)) }
+    }
     if (atPoint(it)) {
       const [x, y] = f(it.x, it.y)
       return { ...it, x, y, ...(it.size ? { size: Math.max(6, round(it.size * Math.sqrt(sx * sy))) } : {}) }
@@ -497,7 +577,22 @@ export function setupPlanEditor(ctx) {
   }
 
   // ---------- Poignées ----------
+  /** Poignée de rotation, au-dessus de l'élément. */
+  function spinHandle(it) {
+    const b = itemBox(it)
+    return { k: 'spin', x: (b.minX + b.maxX) / 2, y: b.minY - SPIN / ctx.zoom(), c: { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } }
+  }
   function handles(it) {
+    if (it.kind === 'image') return [spinHandle(it), { k: 'isize', x: it.x + it.w / 2, y: it.y + it.h / 2 }]
+    if (it.kind === 'line') return [spinHandle(it), ...lineHandles(it)]
+    if (it.pts && it.kind === 'shape') return [spinHandle(it), ...shapeHandles(it)]
+    return shapeHandles(it)
+  }
+  const lineHandles = (it) => [
+    ...it.pts.map(([x, y], i) => ({ k: 'vertex', i, x, y })),
+    ...it.pts.slice(1).map(([x2, y2], i) => ({ k: 'edge', i, x: (it.pts[i][0] + x2) / 2, y: (it.pts[i][1] + y2) / 2 })),
+  ]
+  function shapeHandles(it) {
     if (onWall(it)) return [{ k: 'end', i: 0, x: it.seg[0], y: it.seg[1] }, { k: 'end', i: 1, x: it.seg[2], y: it.seg[3] }]
     if (it.kind === 'camera' || it.kind === 'text') {
       const t = ((it.angle ?? 0) * Math.PI) / 180
@@ -505,12 +600,6 @@ export function setupPlanEditor(ctx) {
       return [{ k: 'rotate', x: it.x + Math.cos(t) * d, y: it.y + Math.sin(t) * d }]
     }
     if (it.kind === 'stamp') { const r = (it.size ?? CELL) / 2; return [{ k: 'size', x: it.x + r, y: it.y + r }] }
-    if (it.kind === 'line') {
-      return [
-        ...it.pts.map(([x, y], i) => ({ k: 'vertex', i, x, y })),
-        ...it.pts.slice(1).map(([x2, y2], i) => ({ k: 'edge', i, x: (it.pts[i][0] + x2) / 2, y: (it.pts[i][1] + y2) / 2 })),
-      ]
-    }
     // Poignée du titre en premier : prioritaire si elle recouvre un sommet
     const title = isRoomType(it.type) ? [{ k: 'title', ...titleAnchor(it) }] : []
     if (it.circle) return [...title, { k: 'radius', x: it.circle.x + it.circle.r, y: it.circle.y }]
@@ -527,6 +616,15 @@ export function setupPlanEditor(ctx) {
     const closed = it.kind !== 'line'
     if (hd.k === 'vertex') return { ...it, pts: moveVertex(it.pts, hd.i, p, ortho, closed) }
     if (hd.k === 'edge') return { ...it, pts: moveEdge(it.pts, hd.i, p.x - from.x, p.y - from.y, ortho, closed) }
+    if (hd.k === 'spin') {
+      let a = Math.atan2(p.y - hd.c.y, p.x - hd.c.x) - Math.atan2(from.y - hd.c.y, from.x - hd.c.x)
+      if (!free) a = Math.round(a / (Math.PI / 12)) * (Math.PI / 12) // crans de 15°
+      return rotateItem(it, hd.c, a)
+    }
+    if (hd.k === 'isize') {
+      const k = Math.max(Math.abs(p.x - it.x) / (it.w / 2), Math.abs(p.y - it.y) / (it.h / 2), 0.05)
+      return { ...it, w: round(it.w * k), h: round(it.h * k) }
+    }
     if (hd.k === 'size') return { ...it, size: round(Math.max(8, 2 * Math.max(Math.abs(p.x - it.x), Math.abs(p.y - it.y)))) }
     if (hd.k === 'radius') return { ...it, circle: { ...it.circle, r: round(Math.max(CELL * 0.3, Math.hypot(p.x - it.circle.x, p.y - it.circle.y))) } }
     if (hd.k === 'rotate') {
@@ -648,6 +746,11 @@ export function setupPlanEditor(ctx) {
     // ni les portes / vitres accrochées (elles suivent leur pièce)
     const movable = () => groupItems().filter(([, it]) => !it.host && !isLocked(it))
     if (multi() && !e.ctrlKey) {
+      const gs = groupSpin()
+      if (near(gs)) {
+        action = { kind: 'grotate', c: gs.c, starts: movable(), from: p }
+        return true
+      }
       const corner = groupCorners().find(near)
       if (corner) {
         action = { kind: 'gscale', corner, starts: movable(), from: p }
@@ -691,6 +794,11 @@ export function setupPlanEditor(ctx) {
       let sy = ratio(p.y, o.y, c.y)
       if (e.shiftKey) sx = sy = Math.max(sx, sy) // Maj : garde les proportions
       ctx.doc.transact(() => starts.forEach(([id, it]) => set(id, scaleItem(it, o, sx, sy, e.altKey))))
+    } else if (action.kind === 'grotate') {
+      const { c, from, starts } = action
+      let a = Math.atan2(w.y - c.y, w.x - c.x) - Math.atan2(from.y - c.y, from.x - c.x)
+      if (!e.altKey) a = Math.round(a / (Math.PI / 12)) * (Math.PI / 12)
+      ctx.doc.transact(() => starts.forEach(([id, it]) => set(id, rotateItem(it, c, a))))
     } else if (action.kind === 'slide') {
       const { start, from } = action
       const host = raw(start.host)
@@ -713,7 +821,19 @@ export function setupPlanEditor(ctx) {
 
   function pointerUp() {
     if (!action) return false
-    if (action.kind === 'create') {
+    if (action.kind === 'create' && tool === 'image') {
+      const { from } = action
+      const deck = ctx.deck()
+      tool = 'select'
+      renderTools()
+      ctx.pickImage?.().then((img) => {
+        if (!img) return
+        const k = Math.min(1, (CELL * 8) / Math.max(img.width, img.height)) // 8 cases au plus au départ
+        const id = crypto.randomUUID()
+        set(id, withLayer({ deck, kind: 'image', x: from.x, y: from.y, w: round(img.width * k), h: round(img.height * k), angle: 0, image: img.id }))
+        select(id)
+      })
+    } else if (action.kind === 'create') {
       const it = created(action.from, action.to, action.free)
       if (it) {
         const id = crypto.randomUUID()
@@ -769,7 +889,7 @@ export function setupPlanEditor(ctx) {
       if (x.kind === 'shape') g.stroke(shapePath(x))
       else if (onWall(x)) { g.beginPath(); g.moveTo(x.seg[0], x.seg[1]); g.lineTo(x.seg[2], x.seg[3]); g.stroke() }
       else if (x.kind === 'line') { g.beginPath(); x.pts.forEach(([a, b], i) => (i ? g.lineTo(a, b) : g.moveTo(a, b))); g.stroke() }
-      else if (x.kind === 'text' || x.kind === 'stamp') { const b = markBox(x); g.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY) }
+      else if (x.kind === 'text' || x.kind === 'stamp' || x.kind === 'image') { const b = markBox(x); g.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY) }
       else { g.beginPath(); g.arc(x.x, x.y, CELL * 0.3, 0, Math.PI * 2); g.stroke() }
     }
     g.setLineDash([])
@@ -781,12 +901,21 @@ export function setupPlanEditor(ctx) {
       g.setLineDash([])
       g.fillStyle = '#38e8ff'
       for (const c of groupCorners()) g.fillRect(c.x - 5 * px, c.y - 5 * px, 10 * px, 10 * px)
+      const gs = groupSpin()
+      g.beginPath(); g.moveTo(gs.x, b.minY); g.lineTo(gs.x, gs.y); g.stroke()
+      g.beginPath(); g.arc(gs.x, gs.y, 6 * px, 0, Math.PI * 2); g.fill()
       g.strokeStyle = '#ff3dd8'
     }
     const it = !multi() && selected && get(selected)
     if (it && !isLocked(it)) { // verrouillé : pas de poignées
       for (const hd of handles(it)) {
         if (hd.k === 'rotate') { g.beginPath(); g.moveTo(it.x, it.y); g.lineTo(hd.x, hd.y); g.stroke() }
+        if (hd.k === 'spin') { // rotation libre : rond cyan au bout d'une tige
+          g.beginPath(); g.moveTo(hd.x, hd.y + 6 * px); g.lineTo(hd.x, hd.y + (SPIN - 4) * px); g.stroke()
+          g.fillStyle = '#38e8ff'
+          g.beginPath(); g.arc(hd.x, hd.y, 6 * px, 0, Math.PI * 2); g.fill(); g.stroke()
+          continue
+        }
         if (hd.k === 'title') { // titre : losange jaune
           g.fillStyle = '#ffd84a'
           g.beginPath(); g.moveTo(hd.x, hd.y - 6 * px); g.lineTo(hd.x + 6 * px, hd.y); g.lineTo(hd.x, hd.y + 6 * px); g.lineTo(hd.x - 6 * px, hd.y); g.closePath()
@@ -894,6 +1023,8 @@ export function setupPlanEditor(ctx) {
       if (selected && !get(selected)) selected = [...group].at(-1) ?? null
       renderProps()
     },
+    /** Bibliothèque modifiée (par n'importe qui) : liste des modèles à jour. */
+    libraryChanged() { if (active) renderTools() },
     deckChanged() {
       if (!active) return
       selected = null
