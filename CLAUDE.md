@@ -81,7 +81,7 @@ Univers : équipage du vaisseau scientifique **Gaïa** (Confédération d'Althé
 - **États passifs** : bonus/malus sur les caractéristiques (rarement sur les compétences), avantages/désavantages.
 - **Badges d'accréditation** : Rouge, Gris, Noir, Bleu, Orange, Violet, Jaune, Rose, Vert.
 - **Personnages joueurs** : Arkhelos Philia, Emelisa Breaenna, Cal Atilkis, Zadya Alipha, Mulgan (certains sans fiche Excel). Les autres fiches sont des PNJ.
-- **MJ** : une autre personne que l'utilisateur (l'utilisateur est joueur et seul développeur).
+- **MJ** : une autre personne que l'utilisateur (l'utilisateur est joueur et développeur, avec un second développeur depuis novembre 2026).
 - **Gestion du vaisseau et des ressources** (« Excel de gestion du RP », ancienne version mais mécaniques toujours valables) : énergie des générateurs répartie entre systèmes, état des systèmes, stats du vaisseau, vivres/munitions/matériel médical, plan du vaisseau sur 4 étages (2, 1, 0, -1).
 
 ### Écarts relevés entre le PDF et les fiches Excel (on suit le PDF)
@@ -121,3 +121,4 @@ Interprétations et écarts par rapport à l'Excel de gestion :
 - Code et commentaires en français, noms de variables en anglais.
 - Garder l'app 100 % statique : rien qui nécessite un serveur.
 - Petits commits, une fonctionnalité à la fois, testée avec deux onglets ouverts.
+- **Deux développeurs sur le dépôt** : toujours synchroniser avant de pousser. Commiter ses modifications, puis `git pull --rebase` (récupère le travail de l'autre et rejoue ses commits par-dessus), résoudre les conflits éventuels, vérifier que `npm run build` passe encore, puis seulement `git push`. Faire aussi un `git pull` en début de session. Jamais de `git push --force` sur `main`.
