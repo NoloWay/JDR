@@ -197,7 +197,16 @@ export function setupSheets(ctx) {
           'Faire apparaître dans le dossier du personnel'),
         h('button', {
           class: 'small danger',
-          onclick: () => { if (confirm(`Supprimer la fiche de ${data.name} ?`)) { characters.delete(openId); close() } },
+          onclick: () => {
+            if (!confirm(`Supprimer définitivement la fiche de ${data.name} (et son jeton) ?\nPensez à exporter la salle avant si vous voulez pouvoir la récupérer.`)) return
+            const id = openId
+            const tokens = ctx.doc.getMap('tokens')
+            ctx.doc.transact(() => {
+              for (const [tid, t] of [...tokens.entries()]) if (t.charId === id) tokens.delete(tid)
+              characters.delete(id)
+            })
+            close()
+          },
         }, 'Supprimer la fiche')))
 
     // ---- Caractéristiques ----

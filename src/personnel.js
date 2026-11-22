@@ -26,7 +26,7 @@ const POSTS = [ // [motif sur le poste sans accents, service], dans l'ordre du r
   [/ingenieure? en aero/, 'tech'], [/ingenieure? en electro/, 'tech'], [/technicien(ne)? general/, 'tech'], [/manutention/, 'tech'],
   [/astrophysic/, 'science'], [/biolog/, 'science'], [/geolog/, 'science'], [/climatolog/, 'science'], [/ethnolog/, 'science'], [/assistante? de labo/, 'science'],
   [/responsable sanitaire/, 'misc'], [/cuisin/, 'misc'], [/jardin/, 'misc'], [/photograph/, 'misc'], [/technicien(ne)? de surface/, 'misc'], [/blanchiss/, 'misc'],
-  [/consultant/, 'special'], [/diplomat/, 'special'],
+  [/consultant/, 'special'], [/diplomat/, 'special'], [/extraeorien/, 'special'],
 ]
 const BADGE_SERVICE = { Rouge: 'command', Gris: 'command', Noir: 'command', Bleu: 'security', Violet: 'medical', Orange: 'special', Jaune: 'tech', Rose: 'science', Vert: 'misc' }
 const plain = (t) => (t ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
