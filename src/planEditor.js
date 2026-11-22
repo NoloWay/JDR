@@ -47,8 +47,6 @@ const TOOLS = [
   ['image', '🖼', 'Image : cliquer pour choisir un fichier et le poser (vaisseau, bâtiment…)'],
 ]
 const MAP_ONLY = ['line', 'text', 'stamp', 'image']
-// Calques des cartes, dans l'ordre de dessin ; « MJ seulement » est invisible aux joueurs
-const LAYERS = [['decor', 'Décor'], ['notes', 'Annotations'], ['gm', 'MJ seulement']]
 
 /** Polygone régulier ; avec des côtés droits, orienté pour avoir des côtés horizontaux / verticaux. */
 function regular(cx, cy, r, n, start) {
@@ -145,15 +143,57 @@ function translate(it, dx, dy) {
 
 /**
  * ctx : { doc, plan, deck(), entries(), ensureSeeded(deck), zoom(), draw(), g, stage, generic,
- *         cartes seulement : pickImage() → Promise<{ id, width, height } | null>, releaseImage(id), library (Y.Map), viewCenter() }
+ *         cartes seulement : layers() → [{ id, name, gm }], setLayers(list), pickImage() → Promise<{ id, width, height } | null>, releaseImage(id), library (Y.Map), viewCenter() }
  */
 export function setupPlanEditor(ctx) {
   const generic = !!ctx.generic
   const tools = generic ? TOOLS.filter(([k]) => k !== 'camera') : TOOLS.filter(([k]) => !MAP_ONLY.includes(k))
   const NEW_NAME = generic ? 'Nouvelle zone' : 'Nouvelle pièce'
   const hiddenLayers = new Set() // calques masqués pendant l'édition (local)
-  let activeLayer = 'decor' // calque des nouveaux éléments
-  const withLayer = (it) => (generic && !it.host ? { ...it, layer: activeLayer } : it)
+  let activeLayer = null // calque des nouveaux éléments (le premier par défaut)
+  const layers = () => (generic ? ctx.layers() : [])
+  const currentLayer = () => (layers().some((l) => l.id === activeLayer) ? activeLayer : layers()[0]?.id)
+  const withLayer = (it) => (generic && !it.host ? { ...it, layer: currentLayer() } : it)
+  /** Calque d'un élément (le premier si le sien n'existe plus). */
+  const layerIdOf = (it) => (layers().some((l) => l.id === it.layer) ? it.layer : layers()[0]?.id)
+
+  // ---------- Calques (cartes) : ajouter, renommer, réordonner, réserver au MJ, supprimer ----------
+  function editLayers(fn) { const list = layers().map((l) => ({ ...l })); fn(list); ctx.setLayers(list) }
+  function addLayer() {
+    const name = prompt('Nom du nouveau calque ?', 'Nouveau calque')?.trim()
+    if (!name) return
+    const id = crypto.randomUUID()
+    editLayers((list) => list.push({ id, name }))
+    activeLayer = id
+  }
+  function renameLayer(id) {
+    const l = layers().find((x) => x.id === id)
+    const name = l && prompt('Nouveau nom du calque ?', l.name)?.trim()
+    if (name) editLayers((list) => { list.find((x) => x.id === id).name = name })
+  }
+  function moveLayer(id, step) {
+    editLayers((list) => {
+      const i = list.findIndex((x) => x.id === id)
+      const j = i + step
+      if (j >= 0 && j < list.length) [list[i], list[j]] = [list[j], list[i]]
+    })
+  }
+  /** Supprime un calque et tous ses éléments (avec leurs portes et vitres), après avertissement. */
+  function deleteLayer(id) {
+    const list = layers()
+    const l = list.find((x) => x.id === id)
+    if (!l) return
+    if (list.length === 1) return alert('Une carte garde au moins un calque.')
+    const items = [...ctx.plan.entries()].filter(([, it]) => it.deck === ctx.deck() && !it.host && layerIdOf(it) === id)
+    const msg = items.length
+      ? `Supprimer le calque « ${l.name} » et ses ${items.length} élément(s) ?\n\nTout ce qu'il contient sera effacé pour tout le monde. (Ctrl+Z ramène les éléments, mais dans le premier calque : le calque lui-même ne revient pas.)`
+      : `Supprimer le calque vide « ${l.name} » ?`
+    if (!confirm(msg)) return
+    ctx.doc.transact(() => items.forEach(([iid]) => del(iid)))
+    editLayers((all) => all.splice(all.findIndex((x) => x.id === id), 1))
+    hiddenLayers.delete(id)
+    select(null)
+  }
   let active = false
   let tool = 'select'
   let sides = 6
@@ -313,14 +353,24 @@ export function setupPlanEditor(ctx) {
             else if (it.pts) set(id, { ...it, pts: it.pts.map(([x, y]) => [s(x), s(y)]) })
           })),
         }, 'Aligner l’étage sur la grille')),
-      generic && h('div', { class: 'layers' }, h('b', {}, 'Calques'),
-        LAYERS.map(([k, l]) => h('div', { class: 'layer-row' },
+      generic && h('div', { class: 'layers' },
+        h('div', { class: 'layer-row', title: 'Du calque du dessus (en haut de la liste) au calque du dessous' }, h('b', { style: 'flex:1' }, 'Calques'),
+          h('button', { class: 'small', title: 'Ajouter un calque (au-dessus des autres)', onclick: addLayer }, '+')),
+        [...layers()].reverse().map((l, i, arr) => h('div', { class: 'layer-row' },
           h('input', {
-            type: 'checkbox', checked: !hiddenLayers.has(k), title: 'Afficher / masquer (pour vous, le temps de l’édition)',
-            onchange: (e) => { if (e.target.checked) hiddenLayers.delete(k); else hiddenLayers.add(k); select(null); ctx.draw() },
+            type: 'checkbox', checked: !hiddenLayers.has(l.id), title: 'Afficher / masquer (pour vous, le temps de l’édition)',
+            onchange: (e) => { if (e.target.checked) hiddenLayers.delete(l.id); else hiddenLayers.add(l.id); select(null); ctx.draw() },
           }),
-          h('label', { class: 'check', title: 'Calque des nouveaux éléments' },
-            h('input', { type: 'radio', name: 'active-layer', checked: activeLayer === k, onchange: () => { activeLayer = k } }), ` ${l}`)))),
+          h('label', { class: 'check layer-name', title: 'Calque des nouveaux éléments' },
+            h('input', { type: 'radio', name: 'active-layer', checked: currentLayer() === l.id, onchange: () => { activeLayer = l.id } }), ` ${l.name}`),
+          h('button', {
+            class: `icon${l.gm ? ' on' : ''}`, title: l.gm ? 'Réservé au MJ (invisible aux joueurs) : cliquer pour le montrer' : 'Visible par tous : cliquer pour le réserver au MJ',
+            onclick: () => editLayers((list) => { const x = list.find((y) => y.id === l.id); x.gm = !x.gm }),
+          }, l.gm ? 'MJ' : '👁'),
+          h('button', { class: 'icon', title: 'Monter (dessiné plus haut)', disabled: i === 0, onclick: () => moveLayer(l.id, 1) }, '↑'),
+          h('button', { class: 'icon', title: 'Descendre', disabled: i === arr.length - 1, onclick: () => moveLayer(l.id, -1) }, '↓'),
+          h('button', { class: 'icon', title: 'Renommer', onclick: () => renameLayer(l.id) }, '✎'),
+          h('button', { class: 'icon danger', title: 'Supprimer le calque et tous ses éléments', onclick: () => deleteLayer(l.id) }, '×')))),
       generic && ctx.library && h('div', { class: 'layers' }, h('b', {}, 'Modèles'),
         ctx.library.size
           ? h('div', { class: 'tool-row' },
@@ -346,7 +396,7 @@ export function setupPlanEditor(ctx) {
 
   /** Case « Verrouillé » (cartes) : l'élément ne bouge plus, un glisser dessus déplace la vue. */
   const lockBox = (it, patch) => generic && [!it.host && field('Calque', h('select', { onchange: (e) => patch({ layer: e.target.value }) },
-    LAYERS.map(([k, l]) => h('option', { value: k, selected: k === (it.layer ?? 'decor') }, l)))), h('label', { class: 'check', title: 'Un glisser sur l’élément déplace la vue au lieu de l’élément' },
+    layers().map((l) => h('option', { value: l.id, selected: l.id === layerIdOf(it) }, l.gm ? `${l.name} (MJ)` : l.name)))), h('label', { class: 'check', title: 'Un glisser sur l’élément déplace la vue au lieu de l’élément' },
     h('input', { type: 'checkbox', checked: isLocked(it), onchange: (e) => patch({ locked: e.target.checked }) }), ' Verrouillé (ne bouge pas)')]
   const colorInput = (value, onPick) => h('input', { type: 'color', value, onchange: (e) => onPick(e.target.value) })
   const numInput = (value, min, max, onSet) => h('input', {
@@ -1022,6 +1072,14 @@ export function setupPlanEditor(ctx) {
       group = new Set([...group].filter((id) => get(id)))
       if (selected && !get(selected)) selected = [...group].at(-1) ?? null
       renderProps()
+    },
+    /** Calques de la carte modifiés : liste à jour (calque masqué ou actif supprimé : oublié). */
+    layersChanged() {
+      if (!active) return
+      for (const id of hiddenLayers) if (!layers().some((l) => l.id === id)) hiddenLayers.delete(id)
+      renderTools()
+      renderProps()
+      ctx.draw()
     },
     /** Bibliothèque modifiée (par n'importe qui) : liste des modèles à jour. */
     libraryChanged() { if (active) renderTools() },

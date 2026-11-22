@@ -1,7 +1,7 @@
 import { h, liveRender } from './dom.js'
 import { BADGES, DOOR_ACCESS, DOOR_LEVELS, ownerOf, stricterLevel } from './rules.js'
 import { CHARACTER_MIME } from './sheets.js'
-import { CELL, DECKS, deckSize, doorAt, drawPlan, entriesBounds, isRoomType, labelOf, resolveEntries, roomsAround, seedItems, shapeAt } from './shipMap.js'
+import { CELL, DECKS, DEFAULT_LAYERS, deckSize, doorAt, drawPlan, entriesBounds, isRoomType, labelOf, resolveEntries, roomsAround, seedItems, shapeAt } from './shipMap.js'
 import { setupPlanEditor } from './planEditor.js'
 import { setupMapTools } from './mapTools.js'
 
@@ -106,7 +106,13 @@ export function setupBoard(ctx) {
   /** « Espace » d'une scène : tous les étages du vaisseau n'en font qu'un, chaque carte est le sien. */
   const space = (sc) => (String(sc).startsWith(`${SHIP_SCENE}:`) ? SHIP_SCENE : sc)
   /** Calque d'un élément de carte (une porte ou une vitre suit celui de sa forme). */
-  const layerOf = (it, byId) => (it.host ? byId.get(it.host)?.layer : it.layer) ?? 'decor'
+  const sceneLayers = () => (mode === 'map' && scene().layers?.length ? scene().layers : DEFAULT_LAYERS)
+  /** Calque d'un élément (celui de sa forme pour une porte ; le premier si le sien n'existe plus). */
+  const layerOf = (it, byId) => {
+    const l = it.host ? byId.get(it.host)?.layer : it.layer
+    const layers = sceneLayers()
+    return layers.some((x) => x.id === l) ? l : layers[0].id
+  }
   /**
    * Éléments dessinés d'une carte (portes placées sur le mur de leur forme), sans le calque « MJ seulement »
    * pour les joueurs ni les calques masqués dans l'éditeur.
@@ -116,7 +122,7 @@ export function setupBoard(ctx) {
     const byId = new Map(all)
     return all.filter(([, it]) => {
       const l = layerOf(it, byId)
-      return (l !== 'gm' || ctx.me().isGM) && mapEditor.layerVisible(l)
+      return (ctx.me().isGM || !sceneLayers().find((x) => x.id === l)?.gm) && mapEditor.layerVisible(l)
     })
   }
   const entries = () => (mode === 'ship' ? deckEntries() : mapEntries())
@@ -260,10 +266,10 @@ export function setupBoard(ctx) {
         g.imageSmoothingEnabled = c.zoom < 2 // plans en « pixel art » : net quand on zoome
         g.drawImage(bmp, 0, 0, s.width, s.height)
       }
-      // Calques dans l'ordre : décor, annotations, MJ
+      // Calques dans l'ordre de la carte, du dessous vers le dessus
       const ents = mapEntries()
       const byId = new Map(ents)
-      for (const l of ['decor', 'notes', 'gm']) {
+      for (const { id: l } of sceneLayers()) {
         const part = ents.filter(([, it]) => layerOf(it, byId) === l)
         if (part.length) drawPlan(g, part, c.zoom, ctx.me().isGM, true, bitmap)
       }
@@ -563,6 +569,8 @@ export function setupBoard(ctx) {
   })
   const mapEditor = setupPlanEditor({
     doc, plan: mapPlan, g: screen, generic: true,
+    layers: () => sceneLayers(),
+    setLayers: (layers) => patchScene({ layers }),
     library: mapLibrary,
     viewCenter: () => { const { width, height } = view(); return toWorld(width / 2, height / 2) },
     pickImage: () => pickFile('image/*').then(async (file) => {
@@ -882,10 +890,13 @@ export function setupBoard(ctx) {
       lastImage = scene().image
       mapEditor.deckChanged()
       if (!cam().fitted) fit()
-    } else if (scene().image !== lastImage) {
-      // Nouvelle carte sur la scène affichée : on recadre
-      lastImage = scene().image
-      fit()
+    } else {
+      if (scene().image !== lastImage) {
+        // Nouvelle carte sur la scène affichée : on recadre
+        lastImage = scene().image
+        fit()
+      }
+      if (mode === 'map') mapEditor.layersChanged() // calques peut-être modifiés (par n'importe quel MJ)
     }
     renderBar()
     renderSettings()

@@ -72,7 +72,7 @@ const ICONS = {
   shield: ['Sécurité', 'M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z'],
   shuttle: ['Hangar', 'M12 2l3 7v8l-3 3-3-3V9z M9 13l-4 4v2l4-1 M15 13l4 4v2l-4-1'],
   star: ['Étoile', 'M12 2l2.9 6.6 7.1.7-5.4 4.8 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.3l7.1-.7z'],
-  planet: ['Planète', 'M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z M5.2 14.6C2.8 16.6 1.9 18.3 2.6 19c1.2 1.2 6.4-1.6 11.3-6.4s7.6-10.1 6.4-11.3c-.7-.7-2.4.2-4.4 2.6'],
+  planet: ['Planète', 'M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z M21.87 8.41L21.83 9.36L21.13 10.49L19.8 11.72L17.94 12.97L15.68 14.16L13.16 15.19L10.57 16.02L8.07 16.56L5.85 16.8L4.04 16.71L2.77 16.3L2.13 15.59 M2.13 15.59L2.17 14.64L2.87 13.51L4.2 12.28L5.39 11.44 M16.71 7.32L18.81 7.2L20.45 7.4L21.51 7.91L21.87 8.41'], // anneau elliptique incliné centré sur la planète, arrière masqué
   asteroids: ['Astéroïdes', 'M4 10l3-4 4 1 1 4-3 3-4-1z M14 15l2-3 3 1 1 3-2 3-3-1z M16 4l2-1 2 2-1 2h-2z'],
   skull: ['Danger', 'M12 3a8 8 0 0 0-8 8c0 2.5 1.2 4.3 3 5.4V20h10v-3.6c1.8-1.1 3-2.9 3-5.4a8 8 0 0 0-8-8z M9 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z M15 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z M10 20v-2 M14 20v-2'],
   flag: ['Drapeau', 'M5 21V3 M5 4h12l-3 4 3 4H5'],
@@ -352,6 +352,16 @@ export function autoTitleSize(g, s) {
 
 // ---------- Textes, lignes et symboles (cartes) ----------
 export const MARKS = ['text', 'line', 'stamp', 'image']
+
+/**
+ * Calques d'une carte, du dessous vers le dessus (scene.layers : [{ id, name, gm }], gm = visible du MJ seul).
+ * Une carte sans liste prend ces trois calques ; un élément dont le calque n'existe plus va dans le premier.
+ */
+export const DEFAULT_LAYERS = [
+  { id: 'decor', name: 'Décor' },
+  { id: 'notes', name: 'Annotations' },
+  { id: 'gm', name: 'MJ seulement', gm: true },
+]
 
 // Motifs de remplissage (tuile de 16 unités, répétée dans la zone)
 export const PATTERNS = { hatch: 'Hachures', cross: 'Quadrillage oblique', dots: 'Points', checker: 'Damier' }

@@ -107,7 +107,8 @@ main { flex: 1; display: flex; min-height: 0; }
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   font-size: 0.85rem;
 }
-.plan-tools { top: 64px; left: 12px; width: 236px; }
+.plan-tools { top: 64px; left: 12px; width: 236px; max-height: calc(100% - 130px); overflow-y: auto; }
+.plan-tools:has(.layers) { width: 290px; } /* éditeur de carte : calques nommés */
 .plan-props { top: 64px; right: 12px; width: 260px; max-height: calc(100% - 130px); overflow-y: auto; }
 .plan-props h4 { margin: 0; font-size: 0.72rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
 .plan-props p { margin: 0; }
@@ -545,3 +546,7 @@ button.badge-chip.on { border-color: var(--badge); background: color-mix(in srgb
 .map-settings { top: 64px; left: 12px; width: 300px; }
 .map-settings h4 { margin: 0; font-size: 0.72rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
 .map-settings .tool-row input:not([type='checkbox']) { min-width: 0; }
+.layer-row .layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-row .icon { padding: 0 3px; font-size: 0.75rem; }
+.layer-row .icon.on { color: var(--accent-2); font-weight: 700; }
+.layer-row .icon.danger:hover { color: var(--danger); }
