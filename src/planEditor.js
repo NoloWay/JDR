@@ -46,6 +46,8 @@ const TOOLS = [
   ['stamp', '★', 'Symbole : cliquer pour le poser (planète, danger, objectif…)'],
 ]
 const MAP_ONLY = ['line', 'text', 'stamp']
+// Calques des cartes, dans l'ordre de dessin ; « MJ seulement » est invisible aux joueurs
+const LAYERS = [['decor', 'Décor'], ['notes', 'Annotations'], ['gm', 'MJ seulement']]
 
 /** Polygone régulier ; avec des côtés droits, orienté pour avoir des côtés horizontaux / verticaux. */
 function regular(cx, cy, r, n, start) {
@@ -132,6 +134,9 @@ export function setupPlanEditor(ctx) {
   const generic = !!ctx.generic
   const tools = generic ? TOOLS.filter(([k]) => k !== 'camera') : TOOLS.filter(([k]) => !MAP_ONLY.includes(k))
   const NEW_NAME = generic ? 'Nouvelle zone' : 'Nouvelle pièce'
+  const hiddenLayers = new Set() // calques masqués pendant l'édition (local)
+  let activeLayer = 'decor' // calque des nouveaux éléments
+  const withLayer = (it) => (generic && !it.host ? { ...it, layer: activeLayer } : it)
   let active = false
   let tool = 'select'
   let sides = 6
@@ -267,6 +272,14 @@ export function setupPlanEditor(ctx) {
             else if (it.pts) set(id, { ...it, pts: it.pts.map(([x, y]) => [s(x), s(y)]) })
           })),
         }, 'Aligner l’étage sur la grille')),
+      generic && h('div', { class: 'layers' }, h('b', {}, 'Calques'),
+        LAYERS.map(([k, l]) => h('div', { class: 'layer-row' },
+          h('input', {
+            type: 'checkbox', checked: !hiddenLayers.has(k), title: 'Afficher / masquer (pour vous, le temps de l’édition)',
+            onchange: (e) => { if (e.target.checked) hiddenLayers.delete(k); else hiddenLayers.add(k); select(null); ctx.draw() },
+          }),
+          h('label', { class: 'check', title: 'Calque des nouveaux éléments' },
+            h('input', { type: 'radio', name: 'active-layer', checked: activeLayer === k, onchange: () => { activeLayer = k } }), ` ${l}`)))),
       h('p', { class: 'hint' }, `Alt : sans aimantation · Flèches : déplacer d’un cran (Maj : une case) · Suppr : effacer · Ctrl+clic : sélection multiple · Ctrl+C / Ctrl+V : copier, y compris vers ${generic ? 'une autre carte' : 'un autre étage'} · Échap : désélectionner · molette / clic milieu : vue`),
     )
   }
@@ -279,8 +292,9 @@ export function setupPlanEditor(ctx) {
   }
 
   /** Case « Verrouillé » (cartes) : l'élément ne bouge plus, un glisser dessus déplace la vue. */
-  const lockBox = (it, patch) => generic && h('label', { class: 'check', title: 'Un glisser sur l’élément déplace la vue au lieu de l’élément' },
-    h('input', { type: 'checkbox', checked: isLocked(it), onchange: (e) => patch({ locked: e.target.checked }) }), ' Verrouillé (ne bouge pas)')
+  const lockBox = (it, patch) => generic && [!it.host && field('Calque', h('select', { onchange: (e) => patch({ layer: e.target.value }) },
+    LAYERS.map(([k, l]) => h('option', { value: k, selected: k === (it.layer ?? 'decor') }, l)))), h('label', { class: 'check', title: 'Un glisser sur l’élément déplace la vue au lieu de l’élément' },
+    h('input', { type: 'checkbox', checked: isLocked(it), onchange: (e) => patch({ locked: e.target.checked }) }), ' Verrouillé (ne bouge pas)')]
   const colorInput = (value, onPick) => h('input', { type: 'color', value, onchange: (e) => onPick(e.target.value) })
   const numInput = (value, min, max, onSet) => h('input', {
     type: 'number', min, max, step: 1, value: Math.round(value),
@@ -588,7 +602,7 @@ export function setupPlanEditor(ctx) {
   function closeDraft() {
     if (tool === 'line' && draft?.pts.length >= 2) { // ligne ouverte : finie sans revenir au premier point
       const id = crypto.randomUUID()
-      set(id, { deck: ctx.deck(), kind: 'line', pts: draft.pts, color: '#38e8ff', width: 4, dash: 'solid', arrow: 'none' })
+      set(id, { ...withLayer({}), deck: ctx.deck(), kind: 'line', pts: draft.pts, color: '#38e8ff', width: 4, dash: 'solid', arrow: 'none' })
       tool = 'select'
       renderTools()
       draft = null
@@ -597,7 +611,7 @@ export function setupPlanEditor(ctx) {
     }
     if (draft?.pts.length >= 3) {
       const id = crypto.randomUUID()
-      set(id, { deck: ctx.deck(), kind: 'shape', type: 'room', code: '', name: NEW_NAME, icon: '', radius: 0.3, z: Math.max(0, ...shapesZ()) + 1, pts: draft.pts })
+      set(id, { ...withLayer({}), deck: ctx.deck(), kind: 'shape', type: 'room', code: '', name: NEW_NAME, icon: '', radius: 0.3, z: Math.max(0, ...shapesZ()) + 1, pts: draft.pts })
       tool = 'select'
       renderTools()
       draft = null
@@ -703,7 +717,7 @@ export function setupPlanEditor(ctx) {
       const it = created(action.from, action.to, action.free)
       if (it) {
         const id = crypto.randomUUID()
-        set(id, it)
+        set(id, withLayer(it))
         tool = 'select'
         renderTools()
         select(id)
@@ -851,6 +865,8 @@ export function setupPlanEditor(ctx) {
 
   return {
     get active() { return active },
+    /** Calque affiché ? (masquage local pendant l'édition) */
+    layerVisible: (l) => !active || !hiddenLayers.has(l),
     pointerDown, pointerMove, pointerUp, drawOverlay, dblclick, hover,
     setActive(on) {
       active = on

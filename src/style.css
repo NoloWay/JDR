@@ -529,3 +529,16 @@ button.badge-chip.on { border-color: var(--badge); background: color-mix(in srgb
 .map-placeholder:not(:disabled):hover { border-color: var(--accent); box-shadow: 0 0 18px rgba(56, 232, 255, 0.25); }
 .map-placeholder:disabled { color: var(--muted); border-color: var(--line); cursor: default; }
 .map-placeholder[hidden] { display: none; }
+
+/* Outils de jeu : règle, gabarits, crayon (en bas, au centre) ; brouillard (MJ) */
+.tools-bar {
+  position: absolute; bottom: 56px; right: 12px; /* au-dessus du zoom */
+  display: flex; gap: 6px; align-items: center; padding: 6px 10px;
+  background: rgba(11, 16, 34, 0.88); border: 1px solid var(--line); border-radius: 6px;
+}
+.tools-bar input[type='color'] { width: 28px; height: 24px; padding: 0; border: none; background: none; }
+.fog-panel { top: 64px; left: 12px; width: 240px; }
+.fog-panel h4 { margin: 0; font-size: 0.72rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
+.layers { display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; }
+.layers b { font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.layer-row { display: flex; align-items: center; gap: 6px; }

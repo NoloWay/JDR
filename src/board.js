@@ -3,6 +3,7 @@ import { BADGES, DOOR_ACCESS, DOOR_LEVELS, ownerOf, stricterLevel } from './rule
 import { CHARACTER_MIME } from './sheets.js'
 import { CELL, DECKS, deckSize, doorAt, drawPlan, entriesBounds, isRoomType, labelOf, resolveEntries, roomsAround, seedItems, shapeAt } from './shipMap.js'
 import { setupPlanEditor } from './planEditor.js'
+import { setupMapTools } from './mapTools.js'
 
 // Plateau : scènes (cartes), image de fond partagée, pions, caméra locale (pan + zoom).
 //
@@ -98,8 +99,20 @@ export function setupBoard(ctx) {
   const tokenScene = (t) => t.scene ?? DEFAULT_SCENE
   /** « Espace » d'une scène : tous les étages du vaisseau n'en font qu'un, chaque carte est le sien. */
   const space = (sc) => (String(sc).startsWith(`${SHIP_SCENE}:`) ? SHIP_SCENE : sc)
-  /** Éléments dessinés d'une carte (portes placées sur le mur de leur forme). */
-  const mapEntries = (id = mapScene()) => resolveEntries([...mapPlan.entries()].filter(([, it]) => it.deck === id))
+  /** Calque d'un élément de carte (une porte ou une vitre suit celui de sa forme). */
+  const layerOf = (it, byId) => (it.host ? byId.get(it.host)?.layer : it.layer) ?? 'decor'
+  /**
+   * Éléments dessinés d'une carte (portes placées sur le mur de leur forme), sans le calque « MJ seulement »
+   * pour les joueurs ni les calques masqués dans l'éditeur.
+   */
+  function mapEntries(id = mapScene()) {
+    const all = resolveEntries([...mapPlan.entries()].filter(([, it]) => it.deck === id))
+    const byId = new Map(all)
+    return all.filter(([, it]) => {
+      const l = layerOf(it, byId)
+      return (l !== 'gm' || ctx.me().isGM) && mapEditor.layerVisible(l)
+    })
+  }
   const entries = () => (mode === 'ship' ? deckEntries() : mapEntries())
   const tokenSize = () => Number(scene().grid) || 50
 
@@ -183,8 +196,16 @@ export function setupBoard(ctx) {
         g.imageSmoothingEnabled = c.zoom < 2 // plans en « pixel art » : net quand on zoome
         g.drawImage(bmp, 0, 0, s.width, s.height)
       }
-      drawPlan(g, mapEntries(), c.zoom, ctx.me().isGM, true)
+      // Calques dans l'ordre : décor, annotations, MJ
+      const ents = mapEntries()
+      const byId = new Map(ents)
+      for (const l of ['decor', 'notes', 'gm']) {
+        const part = ents.filter(([, it]) => layerOf(it, byId) === l)
+        if (part.length) drawPlan(g, part, c.zoom, ctx.me().isGM, true)
+      }
     }
+    tools.drawUnder(g, c.zoom) // gabarits et dessins
+    tools.drawFog(g, g.getTransform()) // brouillard (onglet Carte)
     // Carte vide (ni fond ni dessin) : invitation à importer une carte
     placeholder.hidden = !(mode === 'map' && !s.image && !mapEntries().length && !mapEditor.active)
 
@@ -220,6 +241,7 @@ export function setupBoard(ctx) {
     })
 
     ed().drawOverlay(g, c.zoom)
+    tools.drawAbove(g, c.zoom)
 
     document.getElementById('zoom-label').textContent = `${Math.round(c.zoom * 100)} %`
   }
@@ -244,6 +266,12 @@ export function setupBoard(ctx) {
     const { sx, sy } = pointer(e)
     const world = toWorld(sx, sy)
     const editing = ed().active
+    if (tools.active() && e.button === 0) { // règle, gabarit, crayon ou brouillard
+      tools.pointerDown(world)
+      drag = { kind: 'tool' }
+      canvas.setPointerCapture(e.pointerId)
+      return
+    }
     if (editing && ed().pointerDown(world, e)) {
       drag = { kind: 'edit' }
       canvas.setPointerCapture(e.pointerId)
@@ -267,11 +295,13 @@ export function setupBoard(ctx) {
       // Nom de la pièce (ou de la zone) survolée en infobulle
       const w = toWorld(sx, sy)
       const room = shapeAt(g, entries(), w.x, w.y, (it) => isRoomType(it.type))
-      canvas.title = room ? labelOf(room[1]) : ''
+      canvas.title = room && !fogged(w) ? labelOf(room[1]) : ''
       ed().hover(w, e) // aperçu de la polyligne en cours
       return
     }
-    if (drag.kind === 'edit') {
+    if (drag.kind === 'tool') {
+      tools.pointerMove(toWorld(sx, sy))
+    } else if (drag.kind === 'edit') {
       ed().pointerMove(toWorld(sx, sy), e)
     } else if (drag.kind === 'pan') {
       cam().x = drag.cx + sx - drag.sx
@@ -286,6 +316,7 @@ export function setupBoard(ctx) {
 
   function endDrag(e) {
     if (drag?.kind === 'edit') ed().pointerUp()
+    if (drag?.kind === 'tool') tools.pointerUp()
     // Simple clic (sans déplacement) dans la vue Vaisseau, hors édition : ouvre la fiche de la porte cliquée
     if (drag?.kind === 'pan' && e?.type === 'pointerup' && mode === 'ship' && !editor.active) {
       const { sx, sy } = pointer(e)
@@ -324,6 +355,7 @@ export function setupBoard(ctx) {
     if (ed().active) return ed().dblclick(toWorld(sx, sy))
     const hit = hitToken(toWorld(sx, sy))
     if (hit) tokens.delete(hit)
+    else tools.dblclick(toWorld(sx, sy)) // gabarit ou trait de crayon
   })
 
   // ---------- Pions ----------
@@ -337,8 +369,14 @@ export function setupBoard(ctx) {
     const mine = ownerOf(c.get('name'), c.get('player')).toLowerCase() === ctx.me().name.toLowerCase()
     return { label: initials, color: BADGES.find((b) => b.name === c.get('badge'))?.color ?? '#9aa4b5', hidden: !!c.get('hidden'), isChar: true, mine }
   }
-  // Un joueur voit toujours le jeton de son propre personnage, même caché par le MJ
-  const visible = (t) => tokenScene(t) === sceneId() && (ctx.me().isGM || !look(t).hidden || look(t).mine)
+  /** Point (monde) sous le brouillard pour un joueur (le MJ voit tout). */
+  function fogged(w) {
+    if (ctx.me().isGM || !tools.fogOn()) return false
+    const c = cam()
+    return tools.fogAt(Math.round((w.x * c.zoom + c.x) * devicePixelRatio), Math.round((w.y * c.zoom + c.y) * devicePixelRatio))
+  }
+  // Un joueur voit toujours le jeton de son propre personnage, même caché par le MJ ou sous le brouillard
+  const visible = (t) => tokenScene(t) === sceneId() && (ctx.me().isGM || look(t).mine || (!look(t).hidden && !fogged(t)))
 
   /**
    * MJ : place le jeton d'un personnage ; s'il en a déjà un dans le même espace (le vaisseau, ou cette carte),
@@ -465,6 +503,14 @@ export function setupBoard(ctx) {
   })
   const ed = () => (mode === 'ship' ? editor : mapEditor)
 
+  // Règle, gabarits, crayon, brouillard
+  const tools = setupMapTools({
+    doc, me: ctx.me, stage: canvas.parentElement,
+    mode: () => mode, sceneId: () => sceneId(), scene: () => scene(), cam: () => cam(),
+    draw: () => draw(), patchScene: (c) => patchScene(c), renderSceneBar: () => renderBar(),
+    canvasSize: () => ({ width: canvas.width, height: canvas.height }),
+  })
+
   // Carte vide : « Importer une carte » (MJ : choisir une image de fond ; joueurs : simple mention)
   const placeholder = h('button', {
     class: 'map-placeholder', hidden: true,
@@ -537,6 +583,7 @@ export function setupBoard(ctx) {
       if (img && ![...scenes.values()].some((s) => s.image === img)) images.delete(img)
       tokens.forEach((t, tid) => { if (tokenScene(t) === id) tokens.delete(tid) })
       mapPlan.forEach((it, pid) => { if (it.deck === id) mapPlan.delete(pid) })
+      tools.forgetScene(id)
       board.set('scene', DEFAULT_SCENE)
     })
   }
@@ -613,11 +660,24 @@ export function setupBoard(ctx) {
           onchange: (e) => patchScene({ grid: Math.max(4, Math.min(400, Number(e.target.value) || 50)) }),
         })),
       isGM && sceneId() !== DEFAULT_SCENE && h('button', { class: 'small danger', onclick: deleteScene }, 'Supprimer'),
+      isGM && h('label', { class: 'check', title: 'Échelle de la règle et des gabarits' }, '1 case =',
+        h('input', {
+          type: 'number', min: 0.01, step: 'any', class: 'short', value: s.unitPerCell ?? 1,
+          onchange: (e) => patchScene({ unitPerCell: Number(e.target.value) || 1 }),
+        }),
+        h('input', {
+          class: 'short', value: s.unitName ?? 'cases', placeholder: 'unité',
+          onchange: (e) => patchScene({ unitName: e.target.value.trim() || 'cases' }),
+        })),
       isGM && h('span', { class: 'sep' }),
+      isGM && h('button', {
+        class: tools.fogOpen ? 'small primary' : 'small', title: 'Brouillard de guerre : cacher la carte et en révéler des zones',
+        onclick: () => { mapEditor.setActive(false); tools.toggleFog(); renderBar() },
+      }, '☁ Brouillard'),
       isGM && h('button', {
         class: mapEditor.active ? 'small primary' : 'small',
         title: 'Dessiner sur la carte (zones, portes, vitres)',
-        onclick: () => { mapEditor.setActive(!mapEditor.active); renderBar() },
+        onclick: () => { if (tools.fogOpen) tools.toggleFog(); mapEditor.setActive(!mapEditor.active); renderBar() },
       }, mapEditor.active ? 'Terminer' : '✎ Modifier la carte'),
     ].filter(Boolean))
   }
@@ -716,6 +776,7 @@ export function setupBoard(ctx) {
     rerender() {
       if (!ctx.me().isGM) { editor.setActive(false); mapEditor.setActive(false) } // l'édition est réservée au MJ
       renderPlaceholder()
+      tools.rerender()
       renderBar()
       renderDoor()
       draw()
@@ -726,6 +787,7 @@ export function setupBoard(ctx) {
       closeDoor()
       if (mode !== 'ship' && editor.active) editor.setActive(false)
       if (mode !== 'map' && mapEditor.active) mapEditor.setActive(false)
+      tools.rerender()
       lastScene = sceneId()
       lastImage = scene().image
       if (!cam().fitted) fit()
