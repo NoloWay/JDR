@@ -17,7 +17,14 @@ function startStarboard(room) {
   document.getElementById('launcher')?.remove()
   root.classList.remove('launcher')
   document.title = 'Starboard'
-  import('./main.js')
+  import('./main.js').then(() => {
+    // Starboard lit sa salle une seule fois au chargement. Si l'adresse change ensuite de salle (bouton Retour
+    // vers l'accueil, autre lien #salle collé dans la barre d'adresse), on recharge pour afficher la bonne vue.
+    const current = location.hash.slice(1)
+    addEventListener('hashchange', () => {
+      if (location.hash.slice(1) !== current) location.reload()
+    })
+  })
 }
 
 // Un lien de salle collé dans la barre d'adresse pendant que l'accueil est affiché
