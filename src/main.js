@@ -56,23 +56,25 @@ function setView(v) {
 $('view-tabs').addEventListener('click', (e) => { if (e.target.dataset.view) setView(e.target.dataset.view) })
 setView(store.get('starboard:view') === 'map' ? 'map' : 'ship')
 
-// Recherche d'un personnage : Entrée centre la vue (bon onglet, bon étage) sur son jeton
+// Recherche d'un personnage : Entrée, ou un clic sur un nom de la liste, centre la vue (bon onglet, bon étage) sur son jeton
 const searchMsg = (text) => {
   $('token-search-msg').textContent = text
   clearTimeout(searchMsg.timer)
   searchMsg.timer = setTimeout(() => ($('token-search-msg').textContent = ''), 4000)
 }
-$('token-search').addEventListener('input', (e) => {
-  $('token-names').replaceChildren(...board.matchCharacters(e.target.value).slice(0, 8).map(([, c]) => new Option(c.get('name'))))
-})
-$('token-search').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return
-  const res = board.findToken(e.target.value)
+function searchToken(text) {
+  const res = board.findToken(text)
   if (res.error) return searchMsg(res.error)
   if (store.get('starboard:view') !== res.view) setView(res.view)
   board.focusToken(res.tokenId)
   searchMsg('')
+}
+$('token-search').addEventListener('input', (e) => {
+  // Nom choisi dans la liste (pas de frappe : inputType absent, ou « insertReplacementText » selon le navigateur)
+  if (!e.inputType || e.inputType === 'insertReplacementText') return searchToken(e.target.value)
+  $('token-names').replaceChildren(...board.matchCharacters(e.target.value).slice(0, 8).map(([, c]) => new Option(c.get('name'))))
 })
+$('token-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchToken(e.target.value) })
 
 const music = setupMusic({ doc, me })
 

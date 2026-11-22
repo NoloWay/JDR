@@ -159,6 +159,8 @@ select, input, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 input:disabled, select:disabled, textarea:disabled { color: var(--text); opacity: 0.85; }
+/* Curseurs : sans le cadre ni la marge des champs, la barre va d'un bord à l'autre (0 et 100 % aux extrémités) */
+input[type='range'] { padding: 0; margin: 0; border: none; background: transparent; accent-color: var(--accent); }
 textarea { resize: vertical; width: 100%; }
 .muted { color: var(--muted); font-size: 0.8rem; }
 
