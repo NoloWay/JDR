@@ -34,8 +34,33 @@ export function connect(roomId, { onPeers } = {}) {
     if (origin !== 'remote') sendUpdate(update)
   })
 
-  onUpdate((update) => Y.applyUpdate(doc, new Uint8Array(update), 'remote'))
-  onState((update) => Y.applyUpdate(doc, new Uint8Array(update), 'remote'))
+  // ---------- Resynchronisation régulière ----------
+  // Une modification n'est envoyée qu'une fois : si elle se perd (micro-coupure), Yjs met de côté toutes les suivantes
+  // du même auteur en attendant celle qui manque (doc.store.pendingStructs), et le joueur ne reçoit plus rien jusqu'au
+  // rechargement. Et deux joueurs sans connexion directe entre eux ne s'échangent rien.
+  // Remède : chacun envoie régulièrement son « état de version » (Y.encodeStateVector, quelques octets) ; chaque pair
+  // répond avec ce qui lui manque. Un joueur rattrape donc ses manques auprès de n'importe quel pair qui les a.
+  const [sendVector, onVector] = room.makeAction('yvector')
+  let lastAsk = 0
+  const askSync = () => {
+    if (!Object.keys(room.getPeers()).length) return
+    lastAsk = Date.now()
+    sendVector(Y.encodeStateVector(doc))
+  }
+  onVector((vector, peerId) => sendState(Y.encodeStateAsUpdate(doc, new Uint8Array(vector)), peerId))
+
+  const applyRemote = (update) => {
+    Y.applyUpdate(doc, new Uint8Array(update), 'remote')
+    // Modification en attente d'une précédente qui n'est jamais arrivée : on la redemande tout de suite
+    if (doc.store.pendingStructs && Date.now() - lastAsk > 3000) askSync()
+  }
+  onUpdate(applyRemote)
+  onState(applyRemote)
+
+  setInterval(askSync, 25000 + Math.random() * 10000) // décalé d'un joueur à l'autre
+  // Retour sur l'onglet, connexion Internet revenue : rattrapage immédiat
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) askSync() })
+  addEventListener('online', askSync)
 
   // Quand quelqu'un arrive, on lui envoie l'état complet.
   room.onPeerJoin((peerId) => {

@@ -114,6 +114,7 @@ Interprétations et écarts par rapport à l'Excel de gestion :
 
 ## Limites techniques connues
 - Dans de rares cas (réseau d'entreprise, certaines 4G) la connexion directe WebRTC échoue : prévoir un relais TURN gratuit (Cloudflare / Metered) dans la config Trystero (`rtcConfig`) si ça arrive.
+- Synchro : chaque modification n'est envoyée qu'une fois ; une modification perdue (micro-coupure) bloquait toutes les suivantes du même auteur (Yjs les met en attente, `doc.store.pendingStructs`) jusqu'au rechargement, et deux joueurs sans connexion directe ne s'échangeaient rien. D'où la resynchronisation de `net.js` : toutes les 25 à 35 s, au retour sur l'onglet, au retour d'Internet et dès qu'une modification est en attente, chacun envoie son état de version (action `yvector`) et chaque pair répond avec ce qui manque (action `ystate`) ; un pair commun sert ainsi de relais.
 - Les relais de signalisation publics sont gratuits mais sans garantie. Si l'un d'eux tombe, changer de stratégie Trystero (`trystero/nostr`, `trystero/mqtt`, `trystero/torrent`).
 - Pas de sécurité forte : tout pair connecté à la salle peut modifier l'état. Suffisant entre amis ; le « secret » d'une salle est son identifiant dans l'URL.
 - `APP_ID` (`src/net.js`) = 'Noloway' ; en `npm run dev` il devient 'Noloway-dev' : la version locale ne rejoint jamais une salle du site en ligne (données locales et en ligne séparées, échanger par Exporter / Importer).
