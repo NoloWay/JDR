@@ -46,7 +46,7 @@ body {
 .identity { display: flex; align-items: center; gap: 8px; }
 .role-label {
   padding: 2px 10px;
-  font-family: var(--display); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  font-family: var(--display); font-size: 0.85rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--muted); border: 1px solid var(--line); border-radius: 3px;
 }
 .role-label[data-role='gm'] { color: #1a120a; background: var(--accent); border-color: var(--accent); }
@@ -99,7 +99,7 @@ body {
 .picker-profile.observer { grid-column: 1 / -1; min-height: 44px; }
 .picker-profile:disabled { opacity: 0.4; cursor: not-allowed; }
 .picker-name { font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spacing: 0.06em; }
-.picker-note { font-size: 0.75rem; color: var(--muted); font-style: italic; }
+.picker-note { font-size: 0.88rem; color: var(--muted); font-style: italic; }
 
 /* Onglets Carte / Fiches */
 .view-tabs button { font-family: var(--display); font-weight: 600; letter-spacing: 0.14em; }
@@ -167,7 +167,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   flex: none;
   display: grid; place-items: center;
   width: 18px; height: 18px;
-  font-family: var(--display); font-size: 0.7rem;
+  font-family: var(--display); font-size: 0.85rem;
   color: #1a120a; background: var(--accent); border-radius: 50%;
 }
 .tile-name {
@@ -175,9 +175,9 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   font-family: var(--display); font-weight: 600; font-size: 0.92rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.tile-choose { flex: none; padding: 1px 7px; font-size: 0.72rem; }
-.tile-sub { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile-stat { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 6px; font-size: 0.75rem; }
+.tile-choose { flex: none; padding: 1px 7px; font-size: 0.85rem; }
+.tile-sub { font-size: 0.9rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-stat { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 6px; font-size: 0.88rem; }
 .tile-stat-label { color: var(--muted); }
 .tile-stat-value { font-variant-numeric: tabular-nums; color: var(--text); }
 .tile-bar { height: 7px; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.6); border-radius: 4px; overflow: hidden; }
@@ -231,7 +231,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   background: rgba(0, 0, 0, 0.18); border: 1px solid var(--line); border-radius: 4px;
 }
 .profiles-admin h3 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 0.9rem; letter-spacing: 0.1em; color: var(--accent); }
-.profiles-admin p { margin: 0; font-size: 0.8rem; }
+.profiles-admin p { margin: 0; font-size: 0.92rem; }
 .profiles-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .profile-chip {
   display: inline-flex; align-items: center; gap: 2px;
@@ -252,9 +252,9 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .roster-card.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .roster-card header { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .roster-card h3 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 1rem; }
-.roster-chip { font-size: 0.72rem; padding: 0 6px; border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 3px; color: var(--accent); }
+.roster-chip { font-size: 0.85rem; padding: 0 6px; border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 3px; color: var(--accent); }
 .roster-status { display: flex; flex-direction: column; gap: 6px; }
-.roster-stat { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.roster-stat { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
 .roster-stat > span:first-child { width: 42px; color: var(--muted); }
 .roster-stat.stat-hp > span:first-child { color: #d65a48; }
 .roster-stat.stat-mana > span:first-child { color: #5b8fd6; }
@@ -316,7 +316,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-name-input { font-family: var(--display); font-size: 1.3rem; width: 100%; max-width: 460px; }
 .gs-meta { color: var(--muted); }
 .gs-fields { display: flex; flex-wrap: wrap; gap: 8px; }
-.gs-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.75rem; color: var(--muted); }
+.gs-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.88rem; color: var(--muted); }
 .gs-field input, .gs-field select { font-size: 0.95rem; }
 .gs-fields .gs-field input { width: 130px; }
 .gs-levels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 14px; margin-top: 4px; }
@@ -326,7 +326,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   color: #1a120a; background: var(--accent); border-radius: 3px;
 }
 .gs-classes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.gs-classes b { font-family: var(--display); font-size: 0.85rem; color: var(--accent); }
+.gs-classes b { font-family: var(--display); font-size: 0.95rem; color: var(--accent); }
 .gs-class-edit { display: flex; align-items: center; gap: 6px; }
 .gs-class-edit input:not(.num) { width: 150px; }
 .gs-class-edit input.num { width: 56px; }
@@ -407,10 +407,10 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 /* Effets passifs : 4 groupes */
 .gs-effects { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
 .gs-effect-group { padding: 10px 12px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--line); border-radius: 4px; }
-.gs-effect-group h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.1em; color: var(--muted); }
+.gs-effect-group h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 0.92rem; letter-spacing: 0.1em; color: var(--muted); }
 .gs-effect-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.gs-effect-group li p { margin: 2px 0 0; color: var(--muted); font-size: 0.88rem; white-space: pre-wrap; }
-.gs-effect-group > p { margin: 0; font-size: 0.85rem; }
+.gs-effect-group li p { margin: 2px 0 0; color: var(--muted); font-size: 0.98rem; white-space: pre-wrap; }
+.gs-effect-group > p { margin: 0; font-size: 0.95rem; }
 .gs-effect-edit { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin-bottom: 8px; }
 .gs-effect-edit textarea { grid-column: 1 / -1; resize: vertical; }
 
@@ -434,11 +434,11 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-skills-sec { margin-top: 18px; }
 .gs-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .gs-skill-group { padding: 10px 12px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--line); border-radius: 4px; }
-.gs-skill-group h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.1em; color: var(--muted); }
+.gs-skill-group h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 0.92rem; letter-spacing: 0.1em; color: var(--muted); }
 .gs-skill-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.gs-skill-group > p { margin: 0; font-size: 0.85rem; }
+.gs-skill-group > p { margin: 0; font-size: 0.95rem; }
 .gs-skill { display: grid; grid-template-columns: 1fr auto 2.4em; gap: 8px; align-items: baseline; }
-.gs-skill-level { color: var(--muted); font-size: 0.85rem; }
+.gs-skill-level { color: var(--muted); font-size: 0.95rem; }
 .gs-skill-level.lv-connaissance, .gs-skill-bonus.lv-connaissance { color: #e0c45a; }
 .gs-skill-level.lv-expertise, .gs-skill-bonus.lv-expertise { color: #7cc47a; }
 .gs-skill-level.lv-maitrise, .gs-skill-bonus.lv-maitrise { color: #6aa8e8; }
@@ -447,7 +447,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-skill-edit input { min-width: 0; }
 
 /* Caractéristiques : colonnes base / effective, valeur effective ajustable à la volée */
-.gs-stats thead th { font-family: var(--display); font-size: 0.72rem; letter-spacing: 0.08em; font-weight: 600; color: var(--muted); text-align: center; padding-bottom: 3px; }
+.gs-stats thead th { font-family: var(--display); font-size: 0.85rem; letter-spacing: 0.08em; font-weight: 600; color: var(--muted); text-align: center; padding-bottom: 3px; }
 .gs-stats thead th:first-child { text-align: left; }
 .gs-stats td.gs-eff { width: auto; white-space: nowrap; }
 .gs-stats td.gs-base { color: var(--muted); }
@@ -456,4 +456,31 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-eff-ctl { display: inline-flex; align-items: center; gap: 3px; }
 .gs-eff-ctl input.num { width: 46px; font-weight: 700; }
 .gs-step { padding: 0; width: 22px; height: 24px; line-height: 1; font-size: 0.95rem; border-radius: 3px; }
-.gs-reset { font-size: 0.8rem; color: var(--muted); }
+.gs-reset { font-size: 0.92rem; color: var(--muted); }
+
+/* Lisibilité : les modules partagés (style.css) utilisent des tailles de 0,6 à 0,85 rem, trop petites en Garamond ;
+   Grandal les agrandit sans toucher à Starboard */
+.muted, .hint, .small-text, .check, .field, .readonly-note, .status, .crew-post, .sec-extra, .inline-edit { font-size: 0.92rem; }
+button.small, .btn.small, .profile-chip { font-size: 0.88rem; }
+.crew h2, .log h2, .music h2 { font-size: 0.95rem; }
+.log ul { font-size: 1rem; }
+.entry-head { font-size: 0.9rem; }
+.entry-head time { font-size: 0.82rem; }
+.entry-head .tag { font-size: 0.75rem; }
+.roll-value { font-size: 1.15rem; }
+.roll-detail, .roll-result { font-size: 0.85rem; }
+.music-title { font-size: 0.98rem; }
+.field input, .field textarea, select.state { font-size: 0.98rem; }
+
+/* Barre de défilement de tout Grandal : fine, couleur du cadre, curseur doré au survol */
+/* Chrome récent ignore les ::-webkit-scrollbar dès que scrollbar-color est posé : réservé à Firefox */
+.sheet { scrollbar-color: auto; } /* style.css pose une couleur de barre sur la fiche : elle neutraliserait le style ci-dessous sous Chrome */
+@supports not selector(::-webkit-scrollbar) { *, .sheet { scrollbar-width: thin; scrollbar-color: #6b5233 rgba(0, 0, 0, 0.28); } }
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.28); border-left: 1px solid var(--line); }
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #6b5233, #4a3824); border: 1px solid #1a130c; border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(217, 164, 65, 0.25);
+}
+*::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #d9a441, #a87a26); }
+*::-webkit-scrollbar-corner { background: transparent; }
