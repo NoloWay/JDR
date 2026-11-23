@@ -460,7 +460,7 @@ export function setupBoard(ctx) {
     const initials = c.get('name').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
     const owner = (ctx.ownerOf ?? ownerOf)(c.get('name'), c.get('player')) // ctx.ownerOf : règle du jeu (Grandal)
     const mine = owner.toLowerCase() === ctx.me().name.toLowerCase()
-    return { label: initials, color: BADGES.find((b) => b.name === c.get('badge'))?.color ?? '#9aa4b5', hidden: !!c.get('hidden'), isChar: true, mine, pj: !!owner || !!ctx.allPC } // allPC (Grandal) : tous en PJ
+    return { label: initials, color: BADGES.find((b) => b.name === c.get('badge'))?.color ?? '#9aa4b5', hidden: !ctx.noHidden && !!c.get('hidden'), isChar: true, mine, pj: !!owner || !!ctx.allPC } // allPC (Grandal) : tous en PJ
   }
   /** Point (monde) sous le brouillard pour un joueur (le MJ voit tout). */
   function fogged(w) {
@@ -963,7 +963,7 @@ export function setupBoard(ctx) {
     const q = norm(query)
     if (!q) return []
     return [...characters.entries()]
-      .filter(([id, c]) => ctx.me().isGM || !c.get('hidden') || look({ charId: id }).mine)
+      .filter(([id, c]) => ctx.me().isGM || ctx.noHidden || !c.get('hidden') || look({ charId: id }).mine) // noHidden (Grandal) : jamais de fiche cachée
       .filter(([, c]) => norm(c.get('name')).includes(q))
       .sort(([, a], [, b]) => norm(b.get('name')).startsWith(q) - norm(a.get('name')).startsWith(q))
   }

@@ -68,7 +68,8 @@ const profiles = setupProfiles(doc, () => { if (ready) onProfilesChange() })
 
 // ---------- Plateau : uniquement les cartes / décors (mode « Carte » du plateau de Starboard) ----------
 // allPC : toutes les fiches sont des PJ (jetons en étoile) ; ownerOf : le propriétaire est le profil « Joueur » de la fiche
-const board = setupBoard({ doc, me, allPC: true, ownerOf: ownerOfSheet })
+// noHidden : aucune fiche (ni jeton) cachée aux joueurs, même si un ancien champ « hidden » traîne dans une fiche
+const board = setupBoard({ doc, me, allPC: true, ownerOf: ownerOfSheet, noHidden: true })
 board.setMode('map')
 
 const searchMsg = (text) => {

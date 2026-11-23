@@ -162,7 +162,6 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   .tile-stat.stat-mana { display: none; }
 }
 .tile.mine { border-left: 3px solid var(--accent); }
-.tile.is-hidden { opacity: 0.6; border-style: dashed; }
 .tile-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tile-num {
   flex: none;
@@ -251,11 +250,9 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   background: #211810; border: 1px solid var(--line); border-radius: 4px;
 }
 .roster-card.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.roster-card.is-hidden { border-style: dashed; }
 .roster-card header { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .roster-card h3 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 1rem; }
 .roster-chip { font-size: 0.72rem; padding: 0 6px; border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 3px; color: var(--accent); }
-.roster-chip.hidden-chip { border-color: var(--line); color: var(--muted); }
 .roster-status { display: flex; flex-direction: column; gap: 6px; }
 .roster-stat { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
 .roster-stat > span:first-child { width: 42px; color: var(--muted); }

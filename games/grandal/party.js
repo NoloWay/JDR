@@ -25,11 +25,11 @@ export function setupParty(ctx) {
   const pickEl = document.getElementById('roster-pick')
   let picking = null // vignette en cours de choix (0 … 5), ou null
 
-  // Mêmes règles que les fiches : un joueur voit les fiches visibles et la sienne ;
-  // seuls le MJ et le joueur propriétaire (profil « Joueur » de la fiche) les modifient
+  // Mêmes règles que les fiches : tout le monde voit toutes les fiches (lecture seule pour les non-propriétaires
+  // et les observateurs) ; seuls le MJ et le joueur propriétaire (profil « Joueur » de la fiche) les modifient
   const ownerName = (c) => ctx.ownerOf(c.get('name'), c.get('player'))
   const isMine = (c) => !!ownerName(c) && ownerName(c).toLowerCase() === ctx.me().name.toLowerCase()
-  const canSee = (c) => ctx.me().isGM || !c.get('hidden') || isMine(c)
+  const canSee = () => true
   const canEdit = (c) => ctx.me().isGM || isMine(c)
 
   const value = (id, key, def) => { const v = status.get(`${id}|${key}`); return typeof v === 'number' ? v : def }
@@ -58,7 +58,7 @@ export function setupParty(ctx) {
       onclick: (e) => { e.stopPropagation(); pick(i) },
     }, label)
 
-    // Vignette sans aventurier (ou fiche cachée à ce joueur) : un simple emplacement orné, sans texte ;
+    // Vignette sans aventurier : un simple emplacement orné, sans texte ;
     // le MJ y voit en plus le bouton pour la remplir
     if (!c || !canSee(c)) {
       return h('article', { class: `tile vacant${isGM ? ' gm' : ''}`, 'aria-label': `Emplacement ${i + 1} libre` },
@@ -67,7 +67,7 @@ export function setupParty(ctx) {
     }
     const canDrag = isGM || isMine(c)
     return h('article', {
-      class: `tile${c.get('hidden') ? ' is-hidden' : ''}${isMine(c) ? ' mine' : ''}`,
+      class: `tile${isMine(c) ? ' mine' : ''}`,
       title: canDrag ? 'Cliquer : ouvrir la fiche · Glisser sur la carte : placer son jeton' : 'Cliquer : ouvrir la fiche',
       onclick: () => ctx.sheets.open(id),
       draggable: canDrag,
@@ -124,12 +124,11 @@ export function setupParty(ctx) {
   function card(id, c) {
     const owner = ownerName(c)
     const inSlots = slotOf(id)
-    return h('article', { class: `roster-card${c.get('hidden') ? ' is-hidden' : ''}${picking != null && slots.get(String(picking)) === id ? ' current' : ''}` },
+    return h('article', { class: `roster-card${picking != null && slots.get(String(picking)) === id ? ' current' : ''}` },
       h('header', {},
         h('h3', {}, c.get('name') || 'Sans nom'),
         owner && h('span', { class: 'muted' }, owner),
-        inSlots.length > 0 && h('span', { class: 'roster-chip' }, `Vignette ${inSlots.map((k) => k + 1).join(', ')}`),
-        c.get('hidden') && h('span', { class: 'roster-chip hidden-chip' }, 'Cachée')),
+        inSlots.length > 0 && h('span', { class: 'roster-chip' }, `Vignette ${inSlots.map((k) => k + 1).join(', ')}`)),
       statusEditor(id, c),
       h('div', { class: 'roster-actions' },
         picking != null && ctx.me().isGM && h('button', { class: 'primary', onclick: () => assign(picking, id) }, `Afficher dans la vignette ${picking + 1}`),

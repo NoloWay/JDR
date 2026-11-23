@@ -1,17 +1,18 @@
 // Grandal : fiche de personnage (squelette), propre à Grandal — Starboard garde src/sheets.js.
 //
-// Données : doc.getMap('characters') (id → Y.Map, même collection que le plateau, qui y lit name, hidden, player)
+// Données : doc.getMap('characters') (id → Y.Map, même collection que le plateau, qui y lit name et player)
 //   name, gender, race, age          généralités (texte)
 //   level                            niveau général (nombre, « LV 1 »)
 //   classes                          [{ name, level }] niveaux de classes (« Guerrier LV 1 »)
 //   effects:race | effects:classes | effects:equipment | effects:unique   effets passifs, [{ name, desc }]
 //   stat:<clé>                       { value } pour chaque caractéristique (STATS) ; modificateur calculé (modifier),
 //                                    jamais stocké (un ancien champ mod est ignoré)
-//   player, hidden                   joueur propriétaire (profil joueur, choisi par le MJ), fiche cachée aux joueurs
+//   player                           joueur propriétaire (profil joueur, choisi par le MJ)
 // Les listes et les caractéristiques sont des valeurs simples (remplacées en entier à chaque modification) :
 // export / import directs ; une caractéristique par clé pour que deux personnes n'écrasent pas leurs modifications.
 // Image : doc.getMap('portraits') (id du personnage → { type, data: Uint8Array }, WebP ≤ PORTRAIT_SIZE px).
-// Droits : le MJ et le joueur propriétaire modifient ; création, suppression, joueur et visibilité : MJ seul.
+// Droits : toutes les fiches sont visibles de tous ; le MJ et le joueur propriétaire modifient (les autres joueurs
+// et les observateurs : lecture seule) ; création, suppression et choix du joueur : MJ seul.
 import * as Y from 'yjs'
 import { h, liveRender } from '../../src/dom.js'
 
@@ -56,7 +57,7 @@ const num = (v, def = 0) => (Number.isFinite(Number(v)) && v !== '' && v != null
 /** Nouvelle fiche vide (Y.Map prête à être placée dans doc.getMap('characters')) */
 export function newCharacter(data = {}) {
   const m = new Y.Map()
-  for (const [k, v] of Object.entries({ name: 'Nouvel aventurier', level: 1, hidden: false, ...data })) m.set(k, v)
+  for (const [k, v] of Object.entries({ name: 'Nouvel aventurier', level: 1, ...data })) m.set(k, v)
   return m
 }
 
@@ -97,7 +98,9 @@ export function setupGrandalSheets(ctx) {
 
   const ownerName = (c) => ctx.ownerOf(c.get('name'), c.get('player'))
   const isMine = (c) => !!ownerName(c) && ownerName(c).toLowerCase() === ctx.me().name.toLowerCase()
-  const canSee = (c) => ctx.me().isGM || !c.get('hidden') || isMine(c)
+  // Toutes les fiches sont visibles de tous (joueurs non propriétaires et observateurs : lecture seule).
+  // Un ancien champ « hidden » (fiches créées avant ce choix) est ignoré.
+  const canSee = () => true
   const canEdit = (c) => ctx.me().isGM || isMine(c)
 
   // Adresses des images (créées une fois par image, libérées quand l'image change)
@@ -199,18 +202,15 @@ export function setupGrandalSheets(ctx) {
     // ---- En-tête : actions ----
     const actions = h('div', { class: 'gs-actions' },
       !ed && owner && h('span', { class: 'tag' }, `Joueur · ${owner}`),
-      !ed && isGM && c.get('hidden') && h('span', { class: 'tag' }, 'Cachée'),
       mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; render() } }, ed ? 'Terminer' : 'Modifier'),
       // Croix dessinée en CSS (deux traits) : le caractère « × » n'est jamais centré pile, selon la police
       h('button', { class: 'gs-close', title: 'Fermer la fiche', 'aria-label': 'Fermer la fiche', onclick: close }))
 
-    // MJ : joueur propriétaire, visibilité, suppression
+    // MJ : joueur propriétaire, suppression
     const gmTools = ed && isGM && h('div', { class: 'gs-gm' },
       field('Joueur', h('select', { onchange: set('player') },
         h('option', { value: '', selected: !owner }, '— Aucun —'),
         ctx.playerChoices().map((n) => h('option', { value: n, selected: n === owner }, n)))),
-      h('label', { class: 'check' },
-        h('input', { type: 'checkbox', checked: !!c.get('hidden'), onchange: (e) => c.set('hidden', e.target.checked) }), 'Cachée aux joueurs'),
       h('button', { class: 'small danger', onclick: () => remove(openId, get('name')) }, 'Supprimer la fiche'))
 
     // ---- Effets passifs ----
