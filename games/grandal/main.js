@@ -11,7 +11,8 @@ import '@fontsource/eb-garamond/600.css'
 import '../../src/style.css'
 import './grandal.css'
 import { connect } from '../../src/net.js'
-import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from '../../src/dice.js'
+// Jets de Grandal : d20 seulement, réussite à la valeur demandée ou plus, 20 / 1 critiques (games/grandal/dice.js)
+import { roll, rollFreeD20, OUTCOME_LABEL, MODE_LABEL } from './dice.js'
 import { setupGrandalSheets, replaceCharacters, toBase64, fromBase64 } from './sheet.js'
 import { setupBoard } from '../../src/board.js'
 import { setupMusic } from '../../src/music.js'
@@ -106,17 +107,13 @@ const isSecret = () => $('secret-roll').checked
 function pushLog(entry) {
   log.push([{ who: playerName, t: Date.now(), secret: isSecret(), ...entry }])
 }
-function rollPlain(sides) {
-  pushLog({ text: `d${sides} → ${rollFree(sides)}` })
-}
-$('btn-d6').addEventListener('click', () => rollPlain(6))
-$('btn-d20').addEventListener('click', () => rollPlain(20))
-$('btn-d100').addEventListener('click', () => rollPlain(100))
-// Jet contre une valeur : pas encore branché sur la fiche de Grandal (règles des jets à définir)
-// eslint-disable-next-line no-unused-vars
-function rollCheck(label, target, sides) {
-  const r = roll(sides, target, rollMode)
-  pushLog({ text: label, roll: { sides, target, mode: r.mode, values: r.values, kept: r.kept, outcome: r.outcome } })
+// Jet libre (d20 seul, sans valeur demandée)
+$('btn-d20').addEventListener('click', () => pushLog({ text: `d20 → ${rollFreeD20()}` }))
+// Jet contre une valeur demandée (bouton 🎲 d'une caractéristique sur la fiche) : mode Normal / Avantage /
+// Désavantage et case « Jet secret » de la barre du haut ; rule 'over' = règle de Grandal (la valeur ou plus)
+function rollCheck(label, target) {
+  const r = roll(target, rollMode)
+  pushLog({ text: label, roll: { sides: r.sides, target, mode: r.mode, values: r.values, kept: r.kept, outcome: r.outcome, rule: r.rule } })
 }
 
 // ---------- Chronique (journal) ----------
@@ -159,7 +156,9 @@ function renderLog() {
       body.append(el('span', 'action', action), el('span', 'roll-result', OUTCOME_LABEL[r.outcome]))
       const mode = MODE_LABEL[r.mode] ? ` · ${MODE_LABEL[r.mode]}` : ''
       const dice = r.values.length > 1 ? `${r.values.join(' et ')} → ${r.kept}` : `${r.values[0]}`
-      li.append(body, el('div', 'roll-detail', `🎲 ${dice} pour ${r.target} ou moins (d${r.sides}${mode})`))
+      // Règle de Grandal : il faut atteindre au moins la valeur demandée (anciens jets sans « rule » : ancienne règle)
+      const goal = r.rule === 'over' ? `${r.target} ou plus` : `${r.target} ou moins`
+      li.append(body, el('div', 'roll-detail', `🎲 ${dice} pour ${goal} (d${r.sides}${mode})`))
     } else {
       const free = /^d(\d+) → (\d+)$/.exec(entry.text)
       if (free) body.append(el('span', 'action', `Dé libre d${free[1]}`), el('span', 'roll-value', free[2]))
@@ -175,7 +174,7 @@ doc.getMap('characters').observeDeep(renderLog)
 // ---------- Fiches des aventuriers ----------
 // Fiche propre à Grandal (games/grandal/sheet.js) : « Joueur » = un profil joueur existant, choisi par le MJ ;
 // modification : MJ et propriétaire ; création (« + Fiche », bouton gm-only) et suppression : MJ seul
-const sheets = setupGrandalSheets({ doc, me, ownerOf: ownerOfSheet, playerChoices: () => profiles.players() })
+const sheets = setupGrandalSheets({ doc, me, ownerOf: ownerOfSheet, playerChoices: () => profiles.players(), onRoll: rollCheck })
 $('btn-new-sheet').addEventListener('click', () => sheets.create())
 
 // ---------- Onglets Carte / Fiches (choix local, mémorisé) et vignettes des aventuriers ----------

@@ -290,12 +290,13 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
     linear-gradient(180deg, #261c12 0%, #1c140c 100%);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(217, 164, 65, 0.06) inset;
 }
-.sheet { padding: 0 28px 28px; }
+/* La fiche s'adapte à sa propre largeur (fenêtre étroite, colonnes latérales) : requêtes @container plus bas */
+.sheet { padding: 0 28px 28px; container-type: inline-size; }
 
-/* En-tête : portrait, identité, niveaux, actions */
+/* En-tête : portrait, identité, niveaux, actions (le nom garde toujours de la place) */
 .gs-head {
   position: sticky; top: 0; z-index: 2;
-  display: grid; grid-template-columns: 132px 1fr auto; gap: 20px; align-items: start;
+  display: grid; grid-template-columns: 132px minmax(180px, 1fr) minmax(0, max-content); gap: 20px; align-items: start;
   margin: 0 -28px; padding: 20px 28px 18px;
   background: linear-gradient(180deg, #261c12 75%, rgba(38, 28, 18, 0.94));
   border-bottom: 1px solid var(--line);
@@ -314,7 +315,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-portrait-tools { position: absolute; inset: auto 0 0 0; display: flex; justify-content: center; gap: 4px; padding: 4px; background: rgba(21, 16, 11, 0.85); }
 
 .gs-identity { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.gs-name { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.6rem; letter-spacing: 0.06em; color: var(--accent); overflow-wrap: anywhere; }
+.gs-name { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.6rem; letter-spacing: 0.06em; color: var(--accent); overflow-wrap: break-word; }
 .gs-name-input { font-family: var(--display); font-size: 1.3rem; width: 100%; max-width: 460px; }
 .gs-meta { color: var(--muted); }
 .gs-fields { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -381,6 +382,30 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-stats tr.gs-gap td { height: 12px; padding: 0; border: none; }
 .gs-stats tr.gs-group-end + .gs-gap + tr > * { border-top: 1px solid rgba(74, 56, 36, 0.55); }
 .gs-stats td input.num { width: 64px; text-align: center; }
+/* Bouton de jet d'une caractéristique */
+.gs-stats td.gs-roll { width: 40px; padding: 2px 4px; }
+/* Silhouette de d20 dans un petit bouton cadré (bien identifiable comme cliquable), assorti à la fiche */
+.gs-roll-btn {
+  display: grid; place-items: center;
+  width: 32px; height: 28px; padding: 0;
+  color: rgba(217, 164, 65, 0.85);
+  background: linear-gradient(180deg, rgba(217, 164, 65, 0.1), rgba(0, 0, 0, 0.2));
+  border: 1px solid rgba(217, 164, 65, 0.4); border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.08s;
+}
+.gs-roll-btn:hover, .gs-roll-btn:focus-visible {
+  color: #1a120a; background: var(--accent); border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(217, 164, 65, 0.35); outline: none;
+}
+.gs-roll-btn:active { transform: translateY(1px); box-shadow: none; }
+.gs-roll-btn svg { display: block; }
+/* Autres joueurs : bouton visible mais inactif */
+.gs-roll-btn:disabled, .gs-roll-btn:disabled:hover {
+  color: var(--muted); background: none; border-color: rgba(74, 56, 36, 0.6); box-shadow: none;
+  opacity: 0.4; cursor: not-allowed; transform: none;
+}
 
 /* Effets passifs : 4 groupes */
 .gs-effects { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
@@ -392,8 +417,15 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-effect-edit { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin-bottom: 8px; }
 .gs-effect-edit textarea { grid-column: 1 / -1; resize: vertical; }
 
-@media (max-width: 1100px) {
+/* Fiche étroite : caractéristiques puis effets l'un sous l'autre */
+@container (max-width: 760px) {
   .gs-body { grid-template-columns: 1fr; }
+}
+/* Fiche très étroite : boutons d'action sur leur propre ligne, portrait plus petit */
+@container (max-width: 600px) {
+  .gs-head { grid-template-columns: 96px minmax(0, 1fr); gap: 10px 16px; }
+  .gs-portrait { width: 96px; }
+  .gs-actions { grid-column: 1 / -1; grid-row: 1; }
 }
 
 /* ---------- Chronique (journal) et musique ---------- */

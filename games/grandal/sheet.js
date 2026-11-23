@@ -36,6 +36,18 @@ export const EFFECTS = [
 ]
 const PORTRAIT_SIZE = 512
 
+// Silhouette de d20 (icosaèdre vu de face : contour hexagonal, triangle central, arêtes), au trait,
+// dans la couleur du texte : discrète et assortie à la fiche, contrairement à l'émoji 🎲
+const D20_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">' +
+  '<path d="M12 2.5 20.5 7.25v9.5L12 21.5l-8.5-4.75v-9.5z"/>' +
+  '<path d="M12 8 6.75 16h10.5z"/>' +
+  '<path d="M12 2.5V8M3.5 7.25 12 8l8.5-.75M3.5 16.75 6.75 16M20.5 16.75 17.25 16M12 21.5 6.75 16M12 21.5 17.25 16"/></svg>'
+function d20Button(attrs) {
+  const b = h('button', { class: 'gs-roll-btn', ...attrs })
+  b.innerHTML = D20_ICON
+  return b
+}
+
 /** Modificateur d'une caractéristique : (valeur − 10) / 2, arrondi à l'inférieur (8 → −1, 9 → −1, 10 → +0, 13 → +1) */
 export const modifier = (value) => Math.floor((value - 10) / 2)
 const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '+0')
@@ -72,7 +84,8 @@ async function shrink(file) {
 }
 
 /**
- * ctx : { doc, me() → { name, isGM }, ownerOf(nom, joueur) → profil ou '', playerChoices() → profils joueurs, onOpen() }
+ * ctx : { doc, me() → { name, isGM }, ownerOf(nom, joueur) → profil ou '', playerChoices() → profils joueurs, onOpen(),
+ *         onRoll(libellé, valeur demandée) → jet d'une caractéristique }
  * Renvoie { open(id), close(), create(), rerender() }
  */
 export function setupGrandalSheets(ctx) {
@@ -223,17 +236,29 @@ export function setupGrandalSheets(ctx) {
     // Caractéristique jamais saisie (ou champ vidé) : STAT_DEFAULT, soit un modificateur de +0
     const statValue = (key) => num(c.get(`stat:${key}`)?.value, STAT_DEFAULT)
     const setStat = (key) => (e) => c.set(`stat:${key}`, { value: num(e.target.value, STAT_DEFAULT) })
+    // Jet d'une caractéristique : d20, réussite à sa valeur ou plus (games/grandal/dice.js).
+    // Bouton visible pour tous, cliquable par le MJ et le joueur propriétaire seulement (inactif pour les autres)
+    const showRoll = !!ctx.onRoll
+    const canRoll = mayEdit && showRoll
     const row = ({ key, label }, i) => {
       const value = statValue(key)
       const mod = modifier(value)
       return h('tr', { class: i === STATS_FIRST_GROUP - 1 ? 'gs-group-end' : null },
         h('th', { scope: 'row' }, label),
         h('td', { class: 'gs-value' }, ed ? h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur`, onchange: setStat(key) }) : value),
-        h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}`, title: 'Modificateur = (valeur − 10) ÷ 2, arrondi à l’inférieur' }, signed(mod)))
+        h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}`, title: 'Modificateur = (valeur − 10) ÷ 2, arrondi à l’inférieur' }, signed(mod)),
+        showRoll && h('td', { class: 'gs-roll' }, d20Button({
+          disabled: !canRoll,
+          title: canRoll
+            ? `Jet de ${label} : 1d20, réussite à ${value} ou plus (20 : réussite critique, 1 : échec critique)`
+            : 'Seuls le MJ et le joueur de cette fiche peuvent lancer ce jet',
+          'aria-label': `Lancer un d20 en ${label} (valeur ${value})`,
+          onclick: () => { if (canEdit(c)) ctx.onRoll(`${get('name') || 'Sans nom'} · ${label}`, statValue(key)) },
+        })))
     }
     const statsTable = h('section', { class: 'gs-sec' }, h('h3', { class: 'gs-sec-title' }, 'Caractéristiques'),
       h('table', { class: 'gs-stats' }, h('tbody', {}, STATS.flatMap((s, i) => (i === STATS_FIRST_GROUP - 1
-        ? [row(s, i), h('tr', { class: 'gs-gap', 'aria-hidden': 'true' }, h('td', { colSpan: 3 }))]
+        ? [row(s, i), h('tr', { class: 'gs-gap', 'aria-hidden': 'true' }, h('td', { colSpan: showRoll ? 4 : 3 }))]
         : [row(s, i)])))))
 
     sheetEl.append(...[
