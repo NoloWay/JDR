@@ -5,21 +5,36 @@
 //   doc.getMap('partySlots')  : '0' … '5' → id du personnage affiché dans la vignette
 //   doc.getMap('status')      : '<id>|hp', '<id>|hpMax', '<id>|mana', '<id>|manaMax' → nombre
 //     (une clé par valeur : deux joueurs qui changent l'un les PV, l'autre le mana ne s'écrasent pas)
+// Le reste du statut (SPD, EP, SS, SP) : status.js.
 // Les fiches elles-mêmes restent celles de src/sheets.js (doc.getMap('characters')), ouvertes avec sheets.open(id).
 import { h, liveRender } from '../../src/dom.js'
 import { CHARACTER_MIME } from '../../src/sheets.js'
+import { setupStatus, statusViews } from './status.js'
 
 export const SLOTS = 6
 const STATUS = [
-  { key: 'hp', label: 'PV', title: 'Points de vie', max: 'hpMax', def: 10 },
-  { key: 'mana', label: 'Mana', title: 'Mana', max: 'manaMax', def: 10 },
+  { key: 'hp', label: 'HP', title: 'Points de vie', max: 'hpMax', def: 10 },
+  { key: 'mana', label: 'MP', title: 'Points de mana', max: 'manaMax', def: 10 },
 ]
 
 /** ctx : { doc, me() → { name, isGM }, sheets, setView(view), ownerOf(nom, joueur), profiles (presence.js) } */
 export function setupParty(ctx) {
   const characters = ctx.doc.getMap('characters')
   const slots = ctx.doc.getMap('partySlots')
-  const status = ctx.doc.getMap('status')
+  const st = setupStatus(ctx.doc)
+  const statusUi = statusViews(st)
+  const status = st.status
+  const portraits = ctx.doc.getMap('portraits')
+  // Adresses des images (une par image, libérée quand l'image change)
+  const urls = new Map()
+  function portraitUrl(id) {
+    const pt = portraits.get(id)
+    const cached = urls.get(id)
+    if (cached && (!pt || cached.data !== pt.data)) { URL.revokeObjectURL(cached.url); urls.delete(id) }
+    if (!pt) return null
+    if (!urls.has(id)) urls.set(id, { data: pt.data, url: URL.createObjectURL(new Blob([pt.data], { type: pt.type })) })
+    return urls.get(id).url
+  }
   const tilesEl = document.getElementById('party-tiles')
   const gridEl = document.getElementById('roster-grid')
   const pickEl = document.getElementById('roster-pick')
@@ -76,7 +91,8 @@ export function setupParty(ctx) {
     h('header', { class: 'tile-head' },
       h('span', { class: 'tile-name' }, c.get('name') || 'Sans nom'),
       choose('⇄', 'tile-choose')),
-    STATUS.map((s) => bar(id, s)))
+    STATUS.map((s) => bar(id, s)),
+    statusUi.chips(id, canEdit(c)))
   }
 
   function renderTiles() {
@@ -116,7 +132,8 @@ export function setupParty(ctx) {
           // Plafond relu au moment d'écrire : le maximum a pu changer entre-temps (autre joueur, autre champ)
           ? [h('input', { type: 'number', min: 0, class: 'num', value: cur, onchange: (e) => setValue(id, s.key, Math.min(Number(e.target.value), value(id, s.max, s.def))) }),
             h('span', { class: 'muted' }, '/'),
-            h('input', { type: 'number', min: 0, class: 'num', value: max, onchange: (e) => setValue(id, s.max, Number(e.target.value)) })]
+            // Le maximum ne se modifie que depuis la fiche (bouton « Modifier »)
+            h('b', { title: 'Le maximum se modifie dans la fiche (bouton « Modifier »)' }, max)]
           : h('b', {}, `${cur} / ${max}`))
     }))
   }
@@ -124,15 +141,22 @@ export function setupParty(ctx) {
   function card(id, c) {
     const owner = ownerName(c)
     const inSlots = slotOf(id)
+    const url = portraitUrl(id)
     return h('article', { class: `roster-card${picking != null && slots.get(String(picking)) === id ? ' current' : ''}` },
-      h('header', {},
-        h('h3', {}, c.get('name') || 'Sans nom'),
-        owner && h('span', { class: 'muted' }, owner),
-        inSlots.length > 0 && h('span', { class: 'roster-chip' }, `Vignette ${inSlots.map((k) => k + 1).join(', ')}`)),
+      h('header', { class: 'roster-card-head' },
+        // Rangée du haut : emplacement de la vignette à gauche, bouton « Ouvrir » à droite
+        h('div', { class: 'roster-card-top' },
+          h('span', { class: 'roster-card-sub' }, inSlots.length > 0 ? h('span', { class: 'roster-chip' }, `Vignette ${inSlots.map((k) => k + 1).join(', ')}`) : h('span', { class: 'muted' }, 'Hors vignette')),
+          h('button', { class: 'roster-open', title: 'Ouvrir la fiche du personnage', onclick: () => ctx.sheets.open(id) }, 'Ouvrir', h('span', { 'aria-hidden': 'true' }, '→'))),
+        h('div', { class: 'roster-card-ident' },
+          url && h('img', { class: 'roster-portrait', src: url, alt: `Portrait de ${c.get('name') || ''}` }),
+          h('div', { class: 'roster-card-id' },
+            h('h3', {}, c.get('name') || 'Sans nom'),
+            owner && h('span', { class: 'muted' }, owner)))),
       statusEditor(id, c),
-      h('div', { class: 'roster-actions' },
-        picking != null && ctx.me().isGM && h('button', { class: 'primary', onclick: () => assign(picking, id) }, `Afficher dans la vignette ${picking + 1}`),
-        h('button', { onclick: () => ctx.sheets.open(id) }, 'Ouvrir la fiche')))
+      statusUi.card(id, canEdit(c)),
+      picking != null && ctx.me().isGM && h('div', { class: 'roster-actions' },
+        h('button', { class: 'primary', onclick: () => assign(picking, id) }, `Afficher dans la vignette ${picking + 1}`)))
   }
 
   const renderRoster = liveRender(gridEl, () => {
@@ -191,6 +215,7 @@ export function setupParty(ctx) {
   characters.observeDeep(renderAll)
   slots.observe(renderAll)
   status.observe(renderAll)
+  portraits.observe(renderAll)
   renderAll()
 
   return {

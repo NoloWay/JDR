@@ -392,7 +392,7 @@ $('file-import').addEventListener('change', async (e) => {
     return
   }
   const parts = ['scenes', 'tokens', 'log', 'characters', 'portraits', ...COLLECTIONS].filter((k) => data[k] && Object.keys(data[k]).length)
-  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', portraits: 'images des personnages', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'PV et mana', playerProfiles: 'profils des joueurs' }
+  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', portraits: 'images des personnages', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'statut des personnages (HP, MP, SPD, EP, SS, SP)', playerProfiles: 'profils des joueurs' }
   if (!parts.length) return alert('Aucune donnée de partie dans ce fichier.')
   if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
   if (parts.includes('scenes')) board.importData(data)

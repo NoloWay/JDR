@@ -1,0 +1,209 @@
+// Grandal : section « Statut » d'un personnage (HP, MP, SPD, EP, SS, SP), affichée sur la fiche, les vignettes de
+// l'onglet Fiches et les cases « Aventuriers » du plateau.
+// Données : doc.getMap('status'), une clé par valeur (`<id>|<clé>`) pour que deux personnes qui modifient deux valeurs
+// différentes ne s'écrasent pas :
+//   hp / hpMax        points de vie            (maximum 10 par défaut, valeur courante = maximum tant qu'elle n'est pas saisie)
+//   mana / manaMax    points de mana (MP)      (clé « mana » conservée : les parties existantes restent valables)
+//   spd / spdAdj      vitesse : valeur de base (6 par défaut) et écart temporaire (+/−) ; valeur effective = base + écart
+//   ep / epMax        points d'énergie         (maximum 5 par défaut)
+//   epExtra           EP supplémentaires au-delà du maximum, distincts des autres : consommés, ils disparaissent (0 par défaut)
+//   ss<n> / ssMax<n>  emplacements de sorts du niveau n (1 à 10), maximum 0 par défaut
+//   sp / spMax        points spéciaux          (maximum 3 par défaut)
+// Pour les points « consommables » (EP, SS, SP) : valeur courante = points disponibles, les points consommés sont grisés.
+import { h } from '../../src/dom.js'
+
+export const SS_LEVELS = 10
+export const SPD_DEFAULT = 6
+// Jauges : HP et MP (barre), EP et SP (pastilles) ; `key` = clé de la valeur courante, `max` = clé du maximum
+export const RES = {
+  hp: { key: 'hp', max: 'hpMax', def: 10, label: 'HP', title: 'Points de vie' },
+  mp: { key: 'mana', max: 'manaMax', def: 10, label: 'MP', title: 'Points de mana' },
+  ep: { key: 'ep', max: 'epMax', def: 5, label: 'EP', title: 'Points d’énergie', shape: 'diamond' },
+  sp: { key: 'sp', max: 'spMax', def: 3, label: 'SP', title: 'Points spéciaux', shape: 'round' },
+}
+const SS = (n) => ({ key: `ss${n}`, max: `ssMax${n}`, def: 0, label: `SS ${n}`, title: `Emplacements de sorts de niveau ${n}`, shape: 'square' })
+
+/** Données de statut du Y.Doc : lecture avec valeurs par défaut, écriture bornée, actions rapides */
+export function setupStatus(doc) {
+  const status = doc.getMap('status')
+  const raw = (id, k) => { const v = status.get(`${id}|${k}`); return typeof v === 'number' ? v : undefined }
+  const put = (id, k, n) => { if (Number.isFinite(n)) status.set(`${id}|${k}`, Math.max(0, Math.round(n))) }
+
+  /** { cur, max } d'une ressource (res = entrée de RES ou SS(n)) */
+  const read = (id, res) => {
+    const max = raw(id, res.max) ?? res.def
+    return { cur: Math.min(raw(id, res.key) ?? max, max), max }
+  }
+  /** Plafond relu au moment d'écrire : le maximum a pu changer entre-temps (autre joueur, autre champ) */
+  const setCur = (id, res, n) => put(id, res.key, Math.min(n, read(id, res).max))
+  const setMax = (id, res, n) => put(id, res.max, n)
+  const spd = (id) => {
+    const base = raw(id, 'spd') ?? SPD_DEFAULT
+    const adj = Math.round(Number(status.get(`${id}|spdAdj`)) || 0)
+    return { base, adj, eff: base + adj }
+  }
+  const extra = (id) => raw(id, 'epExtra') ?? 0
+  const setExtra = (id, n) => put(id, 'epExtra', n)
+  const addExtra = (id) => setExtra(id, extra(id) + 1)
+  // Consommer un EP : les EP supplémentaires partent d'abord (ils disparaissent), puis ceux du maximum (ils se grisent)
+  const spendEp = (id) => { if (extra(id) > 0) setExtra(id, extra(id) - 1); else setCur(id, RES.ep, read(id, RES.ep).cur - 1) }
+  const setSpdBase = (id, n) => put(id, 'spd', n)
+  const setSpdAdj = (id, n) => { if (Number.isFinite(n)) status.set(`${id}|spdAdj`, Math.round(n)) } // l'écart peut être négatif
+  /** Clic sur la pastille i : elle devient la dernière disponible (ou, si elle l'était déjà, elle est consommée) */
+  const togglePip = (id, res, i) => { const { cur } = read(id, res); setCur(id, res, cur === i + 1 ? i : i + 1) }
+
+  const ssAll = (id) => Array.from({ length: SS_LEVELS }, (_, i) => ({ n: i + 1, res: SS(i + 1), ...read(id, SS(i + 1)) }))
+  const ssTotal = (id) => ssAll(id).reduce((t, s) => ({ cur: t.cur + s.cur, max: t.max + s.max }), { cur: 0, max: 0 })
+  // Actions rapides des cases du plateau, où un seul nombre résume tous les niveaux :
+  // consommer = un emplacement du plus bas niveau disponible ; rendre = un emplacement du plus haut niveau consommé
+  const ssSpend = (id) => { const s = ssAll(id).find((x) => x.cur > 0); if (s) setCur(id, s.res, s.cur - 1) }
+  const ssRestore = (id) => { const s = ssAll(id).reverse().find((x) => x.cur < x.max); if (s) setCur(id, s.res, s.cur + 1) }
+
+  return { status, extra, setExtra, addExtra, spendEp, read, setCur, setMax, spd, setSpdBase, setSpdAdj, togglePip, ssAll, ssTotal, ssSpend, ssRestore }
+}
+
+// ---------- Éléments d'affichage ----------
+/** Jauge (HP, MP) : barre + « courant / maximum » */
+function gauge(res, cur, max, cls = '') {
+  const pct = max > 0 ? Math.round((cur / max) * 100) : 0
+  return h('div', { class: `st-gauge st-${res === RES.hp ? 'hp' : 'mp'} ${cls}`, title: `${res.title} : ${cur} / ${max}` },
+    h('span', { class: 'st-gauge-fill', style: `width:${pct}%` }),
+    h('span', { class: 'st-gauge-text' }, `${cur} / ${max}`))
+}
+
+/** Rangée de pastilles (losanges, carrés, ronds) ; `onPick(i)` la rend cliquable, sinon lecture seule */
+function pips(res, cur, max, onPick, extra = 0, onExtra = null) {
+  const items = Array.from({ length: max }, (_, i) => {
+    const used = i >= cur
+    const attrs = { class: `st-pip st-${res.shape}${used ? ' used' : ''}`, title: `${res.title} : ${cur} / ${max}${onPick ? ' — cliquer pour consommer / rendre' : ''}` }
+    return onPick
+      ? h('button', { ...attrs, type: 'button', 'aria-label': `${res.label} ${i + 1} sur ${max} (${used ? 'consommé' : 'disponible'})`, onclick: (e) => { e.stopPropagation(); onPick(i) } })
+      : h('span', attrs)
+  })
+  // EP supplémentaires : losanges d'une autre teinte, qui disparaissent quand on les consomme (un clic)
+  const extras = Array.from({ length: extra }, () => {
+    const attrs = { class: 'st-pip st-diamond st-extra', title: `EP supplémentaire (au-delà du maximum)${onExtra ? ' — cliquer pour le consommer : il disparaît' : ''}` }
+    return onExtra
+      ? h('button', { ...attrs, type: 'button', 'aria-label': 'EP supplémentaire : consommer', onclick: (e) => { e.stopPropagation(); onExtra() } })
+      : h('span', attrs)
+  })
+  return h('span', { class: 'st-pips' }, items.length || extras.length ? [...items, ...(extras.length ? [h('span', { class: 'st-extras' }, extras)] : [])] : h('span', { class: 'muted st-none' }, 'aucun'))
+}
+
+/**
+ * Constructeur des affichages du statut.
+ * st = setupStatus(doc) ; canEdit = le MJ ou le joueur propriétaire (les autres : lecture seule).
+ */
+export function statusViews(st) {
+  const num = (value, onchange, attrs = {}) => h('input', { type: 'number', min: 0, class: 'num', value, onchange: (e) => onchange(Number(e.target.value)), ...attrs })
+
+  // Vitesse : base (grisée) + valeur effective, ajustable à la volée comme dans le tableau des caractéristiques
+  function spdControl(id, canEdit, { withBase = true } = {}) {
+    const { base, adj, eff } = st.spd(id)
+    return h('span', { class: `st-spd${adj > 0 ? ' up' : adj < 0 ? ' down' : ''}`, title: adj ? `Base ${base} ${adj > 0 ? '+' : '−'} ${Math.abs(adj)}` : 'Vitesse effective = vitesse de base' },
+      withBase && h('span', { class: 'st-spd-base', title: 'Vitesse de base' }, `Base ${base}`),
+      canEdit
+        ? h('span', { class: 'gs-eff-ctl' },
+          h('button', { class: 'gs-step', title: 'Diminuer la vitesse effective', 'aria-label': 'SPD : diminuer la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, adj - 1) } }, '−'),
+          h('input', { type: 'number', class: 'num', value: eff, 'aria-label': 'SPD : vitesse effective', onchange: (e) => st.setSpdAdj(id, (Number.isFinite(Number(e.target.value)) && e.target.value !== '' ? Math.round(Number(e.target.value)) : eff) - base) }),
+          h('button', { class: 'gs-step', title: 'Augmenter la vitesse effective', 'aria-label': 'SPD : augmenter la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, adj + 1) } }, '+'),
+          adj !== 0 && h('button', { class: 'gs-step gs-reset', title: `Revenir à la vitesse de base (${base})`, 'aria-label': 'SPD : revenir à la vitesse de base', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, 0) } }, '↺'))
+        : h('b', { class: 'st-spd-eff' }, eff))
+  }
+
+  /** Section « Statut » complète de la fiche. ed = fiche en modification (maximums et vitesse de base modifiables) */
+  function sheet(id, { canEdit, ed }) {
+    const hp = st.read(id, RES.hp)
+    const mp = st.read(id, RES.mp)
+    const bar = (res, v, cls) => h('div', { class: `st-block st-block-${cls}` },
+      h('div', { class: 'st-head' }, h('h4', { title: res.title }, res.label),
+        canEdit && h('span', { class: 'st-edit' },
+          num(v.cur, (n) => st.setCur(id, res, n), { 'aria-label': `${res.label} : valeur courante` }), h('span', { class: 'muted' }, '/'),
+          ed ? num(v.max, (n) => st.setMax(id, res, n), { 'aria-label': `${res.label} : maximum` }) : h('b', { title: 'Le maximum se modifie avec le bouton « Modifier » de la fiche' }, v.max))),
+      gauge(res, v.cur, v.max, 'big'))
+    const pool = (res, cls) => {
+      const v = st.read(id, res)
+      const extra = res === RES.ep ? st.extra(id) : 0
+      return h('div', { class: `st-block st-block-${cls}` },
+        h('div', { class: 'st-head' }, h('h4', { title: res.title }, res.label),
+          h('span', { class: 'st-count' }, `${v.cur} / ${v.max}${extra ? ` + ${extra}` : ''}`),
+          res === RES.ep && canEdit && h('button', { class: 'small st-add', title: 'Ajouter un EP supplémentaire (au-delà du maximum)', onclick: () => st.addExtra(id) }, '+ EP'),
+          ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(v.max, (n) => st.setMax(id, res, n), { 'aria-label': `${res.label} : maximum` }))),
+        pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, extra - 1))))
+    }
+    const spd = st.spd(id)
+    return h('section', { class: 'gs-sec gs-status' }, h('h3', { class: 'gs-sec-title' }, 'Statut'),
+      h('div', { class: 'st-grid' },
+        bar(RES.hp, hp, 'hp'),
+        bar(RES.mp, mp, 'mp'),
+        h('div', { class: 'st-block st-block-spd' },
+          h('div', { class: 'st-head' }, h('h4', { title: 'Vitesse' }, 'SPD'),
+            ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'base'), num(spd.base, (n) => st.setSpdBase(id, n), { 'aria-label': 'SPD : vitesse de base' }))),
+          spdControl(id, canEdit)),
+        pool(RES.ep, 'ep'),
+        pool(RES.sp, 'sp')),
+      // Emplacements de sorts : une ligne par niveau, de 1 à 10
+      h('div', { class: 'st-block st-block-ss' },
+        h('div', { class: 'st-head' }, h('h4', { title: 'Emplacements de sorts' }, 'SS')),
+        h('div', { class: 'st-ss-lines' }, st.ssAll(id).map(({ n, res, cur, max }) =>
+          h('div', { class: 'st-ss-line' },
+            h('span', { class: 'st-ss-level' }, `Niv. ${n}`),
+            pips(res, cur, max, canEdit && ((i) => st.togglePip(id, res, i))),
+            h('span', { class: 'st-count' }, max ? `${cur} / ${max}` : ''),
+            ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(max, (v) => st.setMax(id, res, v), { 'aria-label': `SS niveau ${n} : maximum` })))))))
+  }
+
+  /** Vignette de l'onglet Fiches : tout le statut sauf HP et MP (déjà là, avec leurs champs) */
+  function card(id, canEdit) {
+    const pool = (res, cls) => {
+      const v = st.read(id, res)
+      const extra = res === RES.ep ? st.extra(id) : 0
+      return h('div', { class: `st-row st-row-${cls}` }, h('span', { class: 'st-row-label', title: res.title }, res.label),
+        pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, extra - 1))),
+        res === RES.ep && canEdit && h('button', { class: 'small st-add', title: 'Ajouter un EP supplémentaire (au-delà du maximum)', onclick: (e) => { e.stopPropagation(); st.addExtra(id) } }, '+ EP'))
+    }
+    const lines = st.ssAll(id).filter((s) => s.max > 0)
+    return h('div', { class: 'st-card' },
+      h('div', { class: 'st-row st-row-spd' }, h('span', { class: 'st-row-label', title: 'Vitesse' }, 'SPD'), spdControl(id, canEdit)),
+      pool(RES.ep, 'ep'),
+      pool(RES.sp, 'sp'),
+      lines.length > 0 && h('div', { class: 'st-row st-row-ss' }, h('span', { class: 'st-row-label', title: 'Emplacements de sorts' }, 'SS'),
+        h('div', { class: 'st-ss-lines' }, lines.map(({ n, res, cur, max }) =>
+          h('div', { class: 'st-ss-line' }, h('span', { class: 'st-ss-level' }, `Niv. ${n}`), pips(res, cur, max, canEdit && ((i) => st.togglePip(id, res, i))))))))
+  }
+
+  /**
+   * Case « Aventuriers » du plateau : une pastille + un nombre par ressource (place limitée).
+   * Clic = −1 (consommer), clic droit ou Maj + clic = +1 (rendre) ; pour les SS, voir ssSpend / ssRestore.
+   */
+  function chips(id, canEdit) {
+    const chip = (cls, shape, text, title, minus, plus) => {
+      const attrs = { class: `st-chip st-chip-${cls}`, title: canEdit ? `${title}\nClic : −1 · clic droit ou Maj + clic : +1` : title }
+      const body = [shape && h('span', { class: `st-pip st-${shape}` }), h('span', { class: 'st-chip-text' }, text)]
+      return canEdit
+        ? h('button', {
+          ...attrs, type: 'button',
+          onclick: (e) => { e.stopPropagation(); e.shiftKey ? plus() : minus() },
+          oncontextmenu: (e) => { e.preventDefault(); e.stopPropagation(); plus() },
+        }, ...body)
+        : h('span', attrs, ...body)
+    }
+    const pool = (res, cls) => {
+      const { cur, max } = st.read(id, res)
+      const extra = res === RES.ep ? st.extra(id) : 0
+      const text = extra ? `${cur}+${extra}` : `${cur}`
+      const title = `${res.title} : ${cur} / ${max}${extra ? ` + ${extra} supplémentaire${extra > 1 ? 's' : ''}` : ''}`
+      // EP : les supplémentaires partent d'abord (ils disparaissent)
+      return chip(cls, res.shape, text, title, res === RES.ep ? () => st.spendEp(id) : () => st.setCur(id, res, cur - 1), () => st.setCur(id, res, cur + 1))
+    }
+    const spd = st.spd(id)
+    const ss = st.ssTotal(id)
+    return h('div', { class: 'st-chips' },
+      chip(`spd${spd.adj > 0 ? ' up' : spd.adj < 0 ? ' down' : ''}`, null, `SPD ${spd.eff}`, spd.adj ? `Vitesse : base ${spd.base}, effective ${spd.eff}` : `Vitesse : ${spd.eff}`, () => st.setSpdAdj(id, spd.adj - 1), () => st.setSpdAdj(id, spd.adj + 1)),
+      pool(RES.ep, 'ep'),
+      chip('ss', 'square', `${ss.cur}`, `Emplacements de sorts : ${ss.cur} / ${ss.max} (tous niveaux)\nClic : consomme un emplacement du plus bas niveau · rend un emplacement du plus haut niveau consommé`, () => st.ssSpend(id), () => st.ssRestore(id)),
+      pool(RES.sp, 'sp'))
+  }
+
+  return { sheet, card, chips, gauge }
+}

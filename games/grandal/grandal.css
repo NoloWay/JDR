@@ -183,7 +183,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .tile-bar { height: 7px; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.6); border-radius: 4px; overflow: hidden; }
 .tile-bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.3s; }
 .stat-hp .tile-bar i { background: linear-gradient(90deg, #8e2a22, #d65a48); }
-.stat-mana .tile-bar i { background: linear-gradient(90deg, #2a4f8e, #5b8fd6); }
+.stat-mana .tile-bar i { background: linear-gradient(90deg, #3a8fcf, #8fd8ff); }
 /* Emplacement libre : un cadre en creux, à peine marqué, avec un fleuron au centre (pas de texte) */
 .tile.vacant {
   position: relative;
@@ -243,7 +243,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .profiles-add input { flex: 1; min-width: 0; }
 .profiles-error { color: var(--danger); }
 
-.roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .roster-card {
   display: flex; flex-direction: column; gap: 10px;
   padding: 12px 14px;
@@ -257,7 +257,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .roster-stat { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
 .roster-stat > span:first-child { width: 42px; color: var(--muted); }
 .roster-stat.stat-hp > span:first-child { color: #d65a48; }
-.roster-stat.stat-mana > span:first-child { color: #5b8fd6; }
+.roster-stat.stat-mana > span:first-child { color: #8fd8ff; }
 .roster-stat input.num { width: 58px; }
 .roster-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
 .roster-empty { margin: 24px 0; }
@@ -505,3 +505,125 @@ button.small, .btn.small, .profile-chip { font-size: 0.88rem; }
 .gs-stats thead th { font-size: 0.85rem; }
 .gs-eff-ctl input.num { width: 54px; }
 .gs-step { width: 26px; height: 28px; }
+
+/* ---------- Statut (status.js) : HP rouge, MP bleu clair, SPD vert, EP losanges orange, SS carrés bleu foncé, SP ronds violets ---------- */
+:root {
+  --st-hp: #d65a48; --st-mp: #8fd8ff; --st-spd: #7cc47a; --st-ep: #f0932b; --st-ss: #2f5fa8; --st-sp: #a56fd6;
+  --st-used: #4a4238; /* pastille consommée : gris sourd */
+}
+/* Pastilles : losange (carré tourné), carré, rond ; consommée = grisée, creuse */
+.st-pips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.st-pip { flex: none; display: inline-block; width: 16px; height: 16px; padding: 0; border: 1px solid rgba(0, 0, 0, 0.55); background: var(--pip); }
+button.st-pip { cursor: pointer; box-shadow: none; }
+button.st-pip:hover { filter: brightness(1.25); }
+.st-pip.used { background: var(--st-used); border-color: rgba(0, 0, 0, 0.5); opacity: 0.7; }
+.st-diamond { --pip: var(--st-ep); width: 13px; height: 13px; transform: rotate(45deg); margin: 2px; }
+.st-square { --pip: var(--st-ss); border-radius: 2px; border-color: #14305d; box-shadow: inset 0 0 0 1px rgba(143, 184, 255, 0.35); }
+.st-round { --pip: var(--st-sp); border-radius: 50%; }
+.st-none { font-size: 0.9rem; }
+
+/* Jauges HP / MP */
+.st-gauge { position: relative; height: 20px; border-radius: 4px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(0, 0, 0, 0.7); overflow: hidden; }
+.st-gauge.big { height: 26px; }
+.st-gauge-fill { position: absolute; inset: 0 auto 0 0; transition: width 0.3s; }
+.st-hp .st-gauge-fill { background: linear-gradient(90deg, #8e2a22, var(--st-hp)); }
+.st-mp .st-gauge-fill { background: linear-gradient(90deg, #3a8fcf, var(--st-mp)); }
+.st-gauge-text { position: absolute; inset: 0; display: grid; place-items: center; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 0.95rem; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
+
+/* Section Statut de la fiche */
+.gs-status { margin-top: 26px; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.st-block { padding: 14px 16px 16px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 10px; }
+.st-block-ss { margin-top: 16px; }
+.st-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 28px; }
+.st-head h4 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.12em; }
+.st-block-hp h4 { color: var(--st-hp); }
+.st-block-mp h4 { color: var(--st-mp); }
+.st-block-spd h4 { color: var(--st-spd); }
+.st-block-ep h4 { color: var(--st-ep); }
+.st-block-sp h4 { color: var(--st-sp); }
+.st-block-ss h4 { color: #6f9be0; }
+.st-count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.95rem; }
+.st-edit { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; }
+.st-count + .st-edit { margin-left: 0; }
+.st-edit input.num { width: 56px; }
+.st-ss-lines { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px 28px; }
+.st-ss-line { display: grid; grid-template-columns: 52px 1fr auto auto; align-items: center; gap: 10px; min-height: 26px; }
+.st-ss-level { color: var(--muted); font-size: 0.95rem; }
+
+/* Vitesse : valeur de base (grisée) + valeur effective verte, ajustable comme les caractéristiques */
+.st-spd { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.st-spd-base { color: var(--muted); font-size: 0.95rem; }
+.st-spd-eff { font-family: var(--display); font-size: 1.4rem; color: var(--st-spd); }
+.st-spd .gs-eff-ctl input.num { color: var(--st-spd); font-weight: 700; font-size: 1.1rem; }
+.st-spd.down .gs-eff-ctl input.num { color: var(--danger); }
+
+/* Vignette de l'onglet Fiches */
+.st-card { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(74, 56, 36, 0.55); }
+.st-row { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.st-row-label { flex: none; width: 42px; font-size: 0.95rem; }
+.st-row-spd .st-row-label { color: var(--st-spd); }
+.st-row-ep .st-row-label { color: var(--st-ep); }
+.st-row-sp .st-row-label { color: var(--st-sp); }
+.st-row-ss { align-items: flex-start; }
+.st-row-ss .st-row-label { color: #6f9be0; }
+.st-row-ss .st-ss-lines { grid-template-columns: 1fr; gap: 4px; }
+.st-row-ss .st-ss-line { grid-template-columns: 52px 1fr; }
+.st-card .st-pip { width: 13px; height: 13px; }
+.st-card .st-diamond { width: 10px; height: 10px; }
+
+/* Case « Aventuriers » du plateau : une pastille + un nombre par ressource */
+.st-chips { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: auto; }
+.st-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 5px; min-height: 22px; font-size: 0.88rem; font-variant-numeric: tabular-nums; color: var(--text); background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(74, 56, 36, 0.7); border-radius: 3px; }
+button.st-chip { cursor: pointer; font-family: var(--serif); }
+button.st-chip:hover { border-color: var(--accent); }
+.st-chip .st-pip { width: 10px; height: 10px; }
+.st-chip .st-diamond { width: 8px; height: 8px; margin: 1px 2px; }
+.st-chip-spd { color: var(--st-spd); }
+.st-chip-spd.down { color: var(--danger); }
+@container (max-height: 100px) {
+  .st-chips { display: none; }
+}
+
+/* ---------- Principe de mise en page des fiches : symétrie horizontale ----------
+   Les blocs d'une rangée se partagent toute la largeur ; un dernier bloc seul occupe la rangée entière. */
+.st-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.st-grid > .st-block-hp, .st-grid > .st-block-mp, .st-grid > .st-block-spd { grid-column: span 2; }
+.st-grid > .st-block-ep, .st-grid > .st-block-sp { grid-column: span 3; }
+.gs-effects, .gs-skills { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gs-effects > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* Compétences : « Générales » (première) sur toute la largeur, les six autres par deux */
+.gs-skills > :first-child { grid-column: 1 / -1; }
+@container (max-width: 720px) {
+  .st-grid > .st-block-hp, .st-grid > .st-block-mp { grid-column: span 3; }
+  .st-grid > .st-block-spd { grid-column: span 6; }
+}
+@container (max-width: 520px) {
+  .st-grid > * { grid-column: 1 / -1 !important; }
+  .gs-effects, .gs-skills { grid-template-columns: 1fr; }
+}
+
+/* EP supplémentaires : losanges dorés brillants, distincts des EP du maximum ; ils disparaissent une fois consommés */
+.st-extra { --pip: #ffd36b; border-color: #b97d0e; box-shadow: 0 0 6px rgba(255, 211, 107, 0.7); }
+.st-extras { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: 8px; }
+.st-add { margin-left: 4px; padding: 1px 8px; }
+.st-head .st-add { margin-left: 0; }
+.st-row .st-add { flex: none; margin-left: auto; }
+
+/* Vignettes de l'onglet Fiches : image du personnage, bouton « Ouvrir » en haut */
+.roster-card .roster-card-head { display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 10px; }
+.roster-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.roster-card-ident { display: flex; align-items: center; gap: 12px; }
+.roster-portrait { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: 3px; border: 1px solid var(--accent); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5) inset, 0 2px 6px rgba(0, 0, 0, 0.5); }
+.roster-card-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.roster-card-id h3 { overflow-wrap: anywhere; }
+.roster-card-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.roster-open {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; font-family: var(--display); font-weight: 600; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent); background: rgba(217, 164, 65, 0.06); border: 1px solid rgba(217, 164, 65, 0.55); border-radius: 3px;
+}
+.roster-open:hover, .roster-open:focus-visible { color: #1a120a; background: var(--accent); border-color: var(--accent); }
+.roster-open span { transition: transform 0.15s; }
+.roster-open:hover span { transform: translateX(3px); }
+.roster-stat b { min-width: 28px; font-variant-numeric: tabular-nums; }

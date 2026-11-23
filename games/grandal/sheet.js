@@ -14,10 +14,12 @@
 // Les listes et les caractéristiques sont des valeurs simples (remplacées en entier à chaque modification) :
 // export / import directs ; une caractéristique par clé pour que deux personnes n'écrasent pas leurs modifications.
 // Image : doc.getMap('portraits') (id du personnage → { type, data: Uint8Array }, WebP ≤ PORTRAIT_SIZE px).
+// Statut (HP, MP, SPD, EP, SS, SP) : status.js, données dans doc.getMap('status').
 // Droits : toutes les fiches sont visibles de tous ; le MJ et le joueur propriétaire modifient (les autres joueurs
 // et les observateurs : lecture seule) ; création, suppression et choix du joueur : MJ seul.
 import * as Y from 'yjs'
 import { h, liveRender } from '../../src/dom.js'
+import { setupStatus, statusViews } from './status.js'
 
 export const STATS = [
   { key: 'vitalite', label: 'Vitalité' },
@@ -113,6 +115,8 @@ export function setupGrandalSheets(ctx) {
   const characters = ctx.doc.getMap('characters')
   const portraits = ctx.doc.getMap('portraits')
   const sheetEl = document.getElementById('sheet')
+  const st = setupStatus(ctx.doc)
+  const statusUi = statusViews(st)
   let openId = null
   let editing = false
 
@@ -330,6 +334,7 @@ export function setupGrandalSheets(ctx) {
     sheetEl.append(...[
       h('header', { class: 'gs-head' }, portrait, identity, actions),
       gmTools,
+      statusUi.sheet(openId, { canEdit: mayEdit, ed }),
       h('div', { class: 'gs-body' }, statsTable, effects),
       skills,
       !mayEdit && h('p', { class: 'readonly-note' }, owner ? `Lecture seule : fiche de ${owner}` : 'Lecture seule'),
@@ -356,6 +361,7 @@ export function setupGrandalSheets(ctx) {
 
   characters.observeDeep(() => { if (openId) render() })
   portraits.observe(() => { if (openId) render() })
+  st.status.observe(() => { if (openId) render() })
 
   return {
     open(id) { if (id !== openId) open(id) },
