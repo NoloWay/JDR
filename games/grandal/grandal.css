@@ -270,7 +270,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
     #1b140d;
 }
 /* Barres flottantes du plateau, outils de jeu, éditeur de carte : bois au lieu du bleu nuit */
-.stage-bar, .zoom-bar, .search-bar, .tools-bar { background: rgba(33, 24, 16, 0.92); }
+.stage-bar, .zoom-bar, .tools-bar { background: rgba(33, 24, 16, 0.92); }
 .plan-tools, .plan-props, .door-popup { background: rgba(33, 24, 16, 0.97); }
 .map-placeholder {
   font-family: var(--display);
@@ -649,3 +649,6 @@ button.st-chip:hover { border-color: var(--accent); }
 .gs-confirm p { margin: 0; flex: 1 1 320px; }
 .gs-confirm-actions { display: flex; gap: 8px; margin-left: auto; }
 .gs-gm .gs-confirm-actions .danger { margin-left: 0; }
+
+/* Barre d'outils de dessin (règle, gabarits, crayon, brouillard…) : en bas à gauche de la carte, à la place de l'ancienne recherche d'aventurier */
+.tools-bar { right: auto; left: 12px; bottom: 12px; }

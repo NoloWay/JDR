@@ -72,23 +72,6 @@ const profiles = setupProfiles(doc, () => { if (ready) onProfilesChange() })
 const board = setupBoard({ doc, me, allPC: true, ownerOf: ownerOfSheet, noHidden: true })
 board.setMode('map')
 
-const searchMsg = (text) => {
-  $('token-search-msg').textContent = text
-  clearTimeout(searchMsg.timer)
-  searchMsg.timer = setTimeout(() => ($('token-search-msg').textContent = ''), 4000)
-}
-function searchToken(text) {
-  const res = board.findToken(text)
-  if (res.error) return searchMsg(res.error)
-  board.focusToken(res.tokenId)
-  searchMsg('')
-}
-$('token-search').addEventListener('input', (e) => {
-  if (!e.inputType || e.inputType === 'insertReplacementText') return searchToken(e.target.value)
-  $('token-names').replaceChildren(...board.matchCharacters(e.target.value).slice(0, 8).map(([, c]) => new Option(c.get('name'))))
-})
-$('token-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchToken(e.target.value) })
-
 const music = setupMusic({ doc, me })
 
 $('btn-add').addEventListener('click', () => {
