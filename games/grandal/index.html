@@ -73,8 +73,10 @@
         <section id="roster" class="roster" hidden>
           <header class="roster-head">
             <h2>Fiches des aventuriers</h2>
-            <button id="btn-new-sheet">+ Fiche</button>
+            <button id="btn-new-sheet" class="gm-only" title="Créer une fiche (MJ)">+ Fiche</button>
           </header>
+          <!-- MJ : profils des joueurs (ajout / suppression), games/grandal/party.js -->
+          <section id="profiles-admin" class="profiles-admin gm-only"></section>
           <div id="roster-pick" class="roster-pick" hidden></div>
           <div id="roster-grid" class="roster-grid"></div>
         </section>

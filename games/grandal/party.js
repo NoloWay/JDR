@@ -7,7 +7,6 @@
 //     (une clé par valeur : deux joueurs qui changent l'un les PV, l'autre le mana ne s'écrasent pas)
 // Les fiches elles-mêmes restent celles de src/sheets.js (doc.getMap('characters')), ouvertes avec sheets.open(id).
 import { h, liveRender } from '../../src/dom.js'
-import { ownerOf } from '../../src/rules.js'
 import { CHARACTER_MIME } from '../../src/sheets.js'
 
 export const SLOTS = 6
@@ -16,7 +15,7 @@ const STATUS = [
   { key: 'mana', label: 'Mana', title: 'Mana', max: 'manaMax', def: 10 },
 ]
 
-/** ctx : { doc, me() → { name, isGM }, sheets, setView(view) } */
+/** ctx : { doc, me() → { name, isGM }, sheets, setView(view), ownerOf(nom, joueur), profiles (presence.js) } */
 export function setupParty(ctx) {
   const characters = ctx.doc.getMap('characters')
   const slots = ctx.doc.getMap('partySlots')
@@ -26,11 +25,12 @@ export function setupParty(ctx) {
   const pickEl = document.getElementById('roster-pick')
   let picking = null // vignette en cours de choix (0 … 5), ou null
 
-  // Mêmes règles que src/sheets.js : un joueur voit les fiches visibles et la sienne ; modifie la sienne ou un PNJ
-  const ownerName = (c) => ownerOf(c.get('name'), c.get('player'))
-  const isMine = (c) => ownerName(c).toLowerCase() === ctx.me().name.toLowerCase()
+  // Mêmes règles que les fiches : un joueur voit les fiches visibles et la sienne ;
+  // seuls le MJ et le joueur propriétaire (profil « Joueur » de la fiche) les modifient
+  const ownerName = (c) => ctx.ownerOf(c.get('name'), c.get('player'))
+  const isMine = (c) => !!ownerName(c) && ownerName(c).toLowerCase() === ctx.me().name.toLowerCase()
   const canSee = (c) => ctx.me().isGM || !c.get('hidden') || isMine(c)
-  const canEdit = (c) => ctx.me().isGM || !ownerName(c) || isMine(c)
+  const canEdit = (c) => ctx.me().isGM || isMine(c)
 
   const value = (id, key, def) => { const v = status.get(`${id}|${key}`); return typeof v === 'number' ? v : def }
   const setValue = (id, key, n) => { if (Number.isFinite(n)) status.set(`${id}|${key}`, Math.max(0, Math.round(n))) }
@@ -151,7 +151,44 @@ export function setupParty(ctx) {
     for (const [id, c] of entries) gridEl.append(card(id, c))
   })
 
-  const renderAll = () => { renderTiles(); renderRoster() }
+  // ---------- MJ : profils des joueurs (ajout / suppression) ----------
+  // Le MJ (Withex) et l'Observateur sont fixes : seuls les profils « Joueur » se gèrent ici.
+  // Champ et bouton créés une fois (la saisie n'est jamais effacée par un rafraîchissement) ;
+  // seuls la liste des profils et le message d'erreur sont redessinés.
+  const adminEl = document.getElementById('profiles-admin')
+  const listEl = h('div', { class: 'profiles-list' })
+  const errorEl = h('p', { class: 'profiles-error', hidden: true })
+  const input = h('input', { placeholder: 'Nom du nouveau joueur', maxLength: 20, 'aria-label': 'Nom du nouveau joueur' })
+  const showError = (text) => { errorEl.textContent = text; errorEl.hidden = !text }
+  const add = () => {
+    if (!ctx.me().isGM) return
+    const error = ctx.profiles.add(input.value)
+    showError(error)
+    if (!error) input.value = ''
+    input.focus()
+  }
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add() } })
+  input.addEventListener('input', () => showError(''))
+  adminEl.append(
+    h('h3', {}, 'Profils des joueurs'),
+    listEl,
+    h('div', { class: 'profiles-add' }, input, h('button', { onclick: add }, 'Ajouter')),
+    errorEl,
+    h('p', { class: 'muted' }, 'Le MJ (Withex) et l’Observateur ne peuvent être ni ajoutés ni supprimés.'))
+  function renderAdmin() {
+    listEl.replaceChildren(...ctx.profiles.players().map((name) =>
+      h('span', { class: 'profile-chip' }, name,
+        h('button', {
+          class: 'icon', title: `Supprimer le profil ${name}`,
+          onclick: () => {
+            if (!ctx.me().isGM) return
+            if (!confirm(`Supprimer le profil joueur « ${name} » ?\nSes fiches restent, sans joueur, tant que le profil n'est pas recréé. S'il est connecté, il devra choisir un autre profil.`)) return
+            ctx.profiles.remove(name)
+          },
+        }, '×'))))
+  }
+
+  const renderAll = () => { renderTiles(); renderRoster(); renderAdmin() }
   characters.observeDeep(renderAll)
   slots.observe(renderAll)
   status.observe(renderAll)
@@ -159,7 +196,7 @@ export function setupParty(ctx) {
 
   return {
     rerender() {
-      if (!ctx.me().isGM) picking = null // le choix des vignettes est réservé au MJ
+      if (!ctx.me().isGM) { picking = null; showError('') } // choix des vignettes et profils : MJ seul
       renderAll()
     },
     /** Appelé quand on quitte l'onglet Fiches : le mode choix s'arrête */

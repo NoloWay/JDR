@@ -9,23 +9,78 @@
 // identifiant de session : tout le monde tranche pareil), l'autre repasse Observateur.
 
 export const OBSERVER = 'Observateur'
-export const ROSTER = [
-  { name: 'Aranud', role: 'player' },
-  { name: 'Baptracien', role: 'player' },
-  { name: 'Juju2pom', role: 'player' },
-  { name: 'Noloway', role: 'player' },
-  { name: 'Rodag', role: 'player' },
-  { name: 'Walter', role: 'player' },
-  { name: 'Withex', role: 'gm' },
-  { name: OBSERVER, role: 'observer' },
-]
+export const GM = 'Withex'
+// Profils fixes (ni ajoutés ni supprimés par le MJ) et profils joueurs de départ
+const FIXED = [{ name: GM, role: 'gm' }, { name: OBSERVER, role: 'observer' }]
+const DEFAULT_PLAYERS = ['Aranud', 'Baptracien', 'Juju2pom', 'Noloway', 'Rodag', 'Walter']
 export const ROLE_LABEL = { gm: 'MJ', player: 'Joueur', observer: 'Observateur' }
 
 const norm = (s) => (s || '').trim().toLowerCase()
-export const profileOf = (name) => ROSTER.find((p) => norm(p.name) === norm(name))
-export const roleOf = (name) => profileOf(name)?.role ?? 'observer'
+const byName = (a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' })
+
+// Liste courante des profils (joueurs, puis MJ et Observateur), tenue à jour par setupProfiles()
+let roster = [...DEFAULT_PLAYERS.map((name) => ({ name, role: 'player' })), ...FIXED]
+export const getRoster = () => roster
+export const profileOf = (name) => roster.find((p) => norm(p.name) === norm(name))
+export const roleOf = (name) => profileOf(name)?.role ?? 'observer' // profil inconnu ou supprimé : Observateur
 /** Profil exclusif : un seul navigateur à la fois (tous sauf Observateur) */
 export const isExclusive = (name) => roleOf(name) !== 'observer'
+/** Propriétaire d'une fiche (Grandal) : son champ « Joueur », s'il désigne un profil joueur existant */
+export const ownerOfSheet = (_charName, player) => {
+  const p = profileOf(player)
+  return p?.role === 'player' ? p.name : ''
+}
+
+/**
+ * Profils joueurs, ajoutés / supprimés par le MJ et partagés : doc.getMap('playerProfiles').
+ * On n'y écrit que les écarts avec la liste de départ (nom → true = ajouté, nom de départ → false = supprimé),
+ * jamais la liste complète : rien n'est recopié au chargement, donc une suppression ne peut pas « ressusciter ».
+ * Le MJ (Withex) et l'Observateur sont fixes.
+ */
+export function setupProfiles(doc, onChange) {
+  const map = doc.getMap('playerProfiles')
+  const isDefault = (name) => DEFAULT_PLAYERS.find((d) => norm(d) === norm(name))
+
+  function players() {
+    const list = new Map()
+    for (const d of DEFAULT_PLAYERS) if (map.get(d) !== false) list.set(norm(d), d)
+    for (const [k, v] of map.entries()) if (v === true && !isDefault(k)) list.set(norm(k), k)
+    return [...list.values()].sort(byName)
+  }
+  function update() {
+    roster = [...players().map((name) => ({ name, role: 'player' })), ...FIXED]
+    onChange?.()
+  }
+  map.observe(update)
+  update()
+
+  return {
+    players,
+    /** Ajoute un profil joueur ; renvoie un message d'erreur, ou '' si c'est fait */
+    add(raw) {
+      const name = String(raw || '').trim().replace(/\s+/g, ' ')
+      if (!name) return 'Indique un nom.'
+      if (name.length > 20) return 'Nom trop long (20 caractères au plus).'
+      if (FIXED.some((p) => norm(p.name) === norm(name))) return `« ${name} » est un profil réservé.`
+      if (players().some((p) => norm(p) === norm(name))) return `Le profil « ${name} » existe déjà.`
+      const d = isDefault(name)
+      doc.transact(() => {
+        if (d) map.delete(d) // profil de départ supprimé puis rétabli
+        else map.set(name, true)
+      })
+      return ''
+    },
+    /** Supprime un profil joueur (jamais le MJ ni l'Observateur) */
+    remove(name) {
+      if (profileOf(name)?.role !== 'player') return
+      const d = isDefault(name)
+      doc.transact(() => {
+        if (d) map.set(d, false)
+        for (const k of [...map.keys()]) if (norm(k) === norm(name) && k !== d) map.delete(k)
+      })
+    },
+  }
+}
 
 /**
  * ctx : { room (Trystero, ou null hors ligne), getName(), onChange(), onLost(name) }

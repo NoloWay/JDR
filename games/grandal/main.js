@@ -15,8 +15,8 @@ import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from '../../src/dice.js'
 import { setupSheets, replaceCharacters } from '../../src/sheets.js'
 import { setupBoard } from '../../src/board.js'
 import { setupMusic } from '../../src/music.js'
-import { ownerOf, BADGES } from '../../src/rules.js'
-import { ROSTER, OBSERVER, ROLE_LABEL, profileOf, roleOf, setupPresence } from './presence.js'
+import { BADGES } from '../../src/rules.js'
+import { OBSERVER, ROLE_LABEL, getRoster, profileOf, roleOf, ownerOfSheet, setupProfiles, setupPresence } from './presence.js'
 import { setupParty } from './party.js'
 
 const GAME = 'grandal'
@@ -41,10 +41,10 @@ const store = {
 // « Récemment » = depuis la dernière activité : la date est rafraîchie tant que la page reste ouverte.
 const PROFILE_MEMORY = 12 * 60 * 60 * 1000 // 12 h
 const savedName = store.get('name') ?? (() => { try { return localStorage.getItem('starboard:name') } catch { return null } })()
-const lastProfile = profileOf(savedName)?.name ?? null
 const lastSeen = Number(store.get('nameAt')) || 0
-const resumeProfile = lastProfile && store.get('name') && Date.now() - lastSeen < PROFILE_MEMORY ? lastProfile : null
-let playerName = resumeProfile ?? OBSERVER
+// Le dernier profil n'est évalué qu'une fois la liste des profils chargée (sauvegarde locale), voir start()
+let lastProfile = null
+let playerName = OBSERVER
 const touchProfile = () => store.set('nameAt', String(Date.now()))
 // Activité : rafraîchie toutes les 5 min, sauf pendant que la fenêtre de choix est ouverte (aucun profil en cours)
 setInterval(() => { if (!$('profile-picker') || $('profile-picker').hidden) touchProfile() }, 5 * 60 * 1000)
@@ -54,15 +54,20 @@ const me = () => ({ name: playerName, isGM: role() === 'gm', isObserver: role() 
 $('room-label').textContent = `Salle : ${roomId}`
 
 // ---------- État partagé ----------
-const { doc, room } = connect(roomId, {
+const { doc, room, persistence } = connect(roomId, {
   game: GAME,
   onPeers: (n) => ($('peer-count').textContent = n < 0 ? 'Hors ligne' : `Joueurs connectés : ${n + 1}`),
 })
 const tokens = doc.getMap('tokens')
 const log = doc.getArray('log')
 
+// Profils joueurs (ajoutés / supprimés par le MJ, partagés dans le Y.Doc). onProfilesChange est défini plus bas.
+let ready = false
+const profiles = setupProfiles(doc, () => { if (ready) onProfilesChange() })
+
 // ---------- Plateau : uniquement les cartes / décors (mode « Carte » du plateau de Starboard) ----------
-const board = setupBoard({ doc, me, allPC: true }) // allPC : toutes les fiches sont des PJ (jetons en étoile)
+// allPC : toutes les fiches sont des PJ (jetons en étoile) ; ownerOf : le propriétaire est le profil « Joueur » de la fiche
+const board = setupBoard({ doc, me, allPC: true, ownerOf: ownerOfSheet })
 board.setMode('map')
 
 const searchMsg = (text) => {
@@ -119,7 +124,7 @@ const canSeeEntry = (entry) => !entry.secret || role() === 'gm' || entry.who ===
 const GM_COLOR = '#d9a441'
 const READABLE = { Noir: '#e8dcc0' }
 function characterOf(who) {
-  return [...doc.getMap('characters').values()].find((c) => ownerOf(c.get('name'), c.get('player')) === who)
+  return [...doc.getMap('characters').values()].find((c) => ownerOfSheet(c.get('name'), c.get('player')) === who)
 }
 function colorOf(who) {
   if (roleOf(who) === 'gm') return GM_COLOR
@@ -166,7 +171,11 @@ log.observe(renderLog)
 doc.getMap('characters').observeDeep(renderLog)
 
 // ---------- Fiches des aventuriers ----------
-const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => {}, allPC: true }) // pas de PJ / PNJ dans Grandal
+// Pas de PJ / PNJ (allPC) ; « Joueur » = un profil joueur existant, choisi par le MJ (playerChoices) ;
+// modification : MJ et propriétaire ; suppression (déjà réservée au MJ par sheets.js) et création : MJ seul
+const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => {}, allPC: true, ownerOf: ownerOfSheet, playerChoices: () => profiles.players() })
+// « + Fiche » : bouton masqué aux non-MJ (classe gm-only) ; on bloque aussi le clic, avant le gestionnaire de sheets.js
+$('btn-new-sheet').addEventListener('click', (e) => { if (!me().isGM) e.stopImmediatePropagation() }, { capture: true })
 
 // ---------- Onglets Carte / Fiches (choix local, mémorisé) et vignettes des aventuriers ----------
 let party = null
@@ -178,7 +187,7 @@ function setView(v) {
   $('view-tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === view))
 }
 $('view-tabs').addEventListener('click', (e) => { if (e.target.dataset.view) setView(e.target.dataset.view) })
-party = setupParty({ doc, me, sheets, setView })
+party = setupParty({ doc, me, sheets, setView, ownerOf: ownerOfSheet, profiles })
 setView(store.get('view'))
 
 // ---------- Identité : profil (rôle fixe) et présence ----------
@@ -238,7 +247,7 @@ function renderPicker() {
   )
   if (pickerMessage) panel.append(Object.assign(document.createElement('p'), { className: 'picker-warning', textContent: pickerMessage }))
   const grid = Object.assign(document.createElement('div'), { className: 'picker-grid' })
-  for (const p of ROSTER) {
+  for (const p of getRoster()) {
     const taken = presence.takenBy(p.name)
     const b = Object.assign(document.createElement('button'), {
       type: 'button',
@@ -263,7 +272,7 @@ function renderPicker() {
 }
 
 function renderNames() {
-  $('name-select').replaceChildren(...ROSTER.map((p) => {
+  $('name-select').replaceChildren(...getRoster().map((p) => {
     const taken = p.name !== playerName && presence.takenBy(p.name)
     const opt = new Option(`${p.name}${taken ? ' · connecté' : ''}`, p.name, false, p.name === playerName)
     opt.disabled = taken
@@ -303,20 +312,50 @@ $('name-select').addEventListener('change', (e) => {
   }
   setName(name)
 })
+// Liste des profils modifiée par le MJ (ici ou chez un autre joueur) : on redessine tout ce qui en dépend.
+// Si notre propre profil vient d'être supprimé, on repasse Observateur et on redemande un profil.
+function onProfilesChange() {
+  if (playerName !== OBSERVER && !profileOf(playerName)) {
+    const lost = playerName
+    setName(OBSERVER, { remember: false })
+    openPicker(`Le profil « ${lost} » a été supprimé par le MJ. Choisis un autre profil.`)
+    return
+  }
+  renderNames()
+  renderPicker()
+  applyRole()
+  renderLog()
+  sheets.rerender()
+  party.rerender()
+  board.rerender()
+}
+
 renderNames()
 applyRole()
-// Dernier profil récent : repris d'office (s'il est déjà pris ailleurs, la présence le signalera dans
-// quelques secondes et la fenêtre de choix s'ouvrira avec un avertissement). Sinon : choix obligatoire.
-if (resumeProfile) {
-  presence.claim()
-  touchProfile()
-} else {
-  openPicker()
+// Démarrage, une fois la sauvegarde locale relue (la liste des profils ajoutés par le MJ s'y trouve) :
+// dernier profil récent → repris d'office (s'il est déjà pris ailleurs, la présence le signalera dans quelques
+// secondes et la fenêtre de choix s'ouvrira avec un avertissement) ; sinon → choix obligatoire.
+for (const el of document.querySelectorAll('body > header, body > main')) el.inert = true // le temps de relire
+let started = false
+function start() {
+  if (started) return
+  started = true
+  ready = true
+  for (const el of document.querySelectorAll('body > header, body > main')) el.inert = false
+  lastProfile = profileOf(savedName)?.name ?? null
+  if (lastProfile && store.get('name') && Date.now() - lastSeen < PROFILE_MEMORY) {
+    setName(lastProfile)
+  } else {
+    renderNames()
+    openPicker()
+  }
 }
+persistence.whenSynced.then(start, start)
+setTimeout(start, 1500) // sauvegarde locale indisponible ou lente : on n'attend pas plus
 
 // ---------- Export / import JSON ----------
 // Mêmes collections que Starboard, sans celles du vaisseau ni des dossiers
-const COLLECTIONS = ['musicTracks', 'musicPlaylists', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'partySlots', 'status']
+const COLLECTIONS = ['musicTracks', 'musicPlaylists', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'partySlots', 'status', 'playerProfiles']
 $('btn-export').addEventListener('click', () => {
   const data = {
     game: GAME,
@@ -348,7 +387,7 @@ $('file-import').addEventListener('change', async (e) => {
     return
   }
   const parts = ['scenes', 'tokens', 'log', 'characters', ...COLLECTIONS].filter((k) => data[k] && Object.keys(data[k]).length)
-  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'PV et mana' }
+  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'PV et mana', playerProfiles: 'profils des joueurs' }
   if (!parts.length) return alert('Aucune donnée de partie dans ce fichier.')
   if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
   if (parts.includes('scenes')) board.importData(data)

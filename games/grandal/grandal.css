@@ -225,6 +225,25 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
   background: rgba(217, 164, 65, 0.12); border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 4px;
 }
 .roster-pick span { flex: 1; color: var(--accent); }
+/* MJ : profils des joueurs */
+.profiles-admin {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 16px; padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.18); border: 1px solid var(--line); border-radius: 4px;
+}
+.profiles-admin h3 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 0.9rem; letter-spacing: 0.1em; color: var(--accent); }
+.profiles-admin p { margin: 0; font-size: 0.8rem; }
+.profiles-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.profile-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 1px 2px 1px 10px;
+  background: #211810; border: 1px solid var(--line); border-radius: 999px;
+}
+.profile-chip button.icon { padding: 0 6px; font-size: 1rem; line-height: 1.2; }
+.profiles-add { display: flex; gap: 6px; max-width: 360px; }
+.profiles-add input { flex: 1; min-width: 0; }
+.profiles-error { color: var(--danger); }
+
 .roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .roster-card {
   display: flex; flex-direction: column; gap: 10px;

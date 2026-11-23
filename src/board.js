@@ -458,7 +458,7 @@ export function setupBoard(ctx) {
     const c = t.charId && characters.get(t.charId)
     if (!c) return { label: t.label, color: t.color, hidden: false, isChar: false }
     const initials = c.get('name').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
-    const owner = ownerOf(c.get('name'), c.get('player'))
+    const owner = (ctx.ownerOf ?? ownerOf)(c.get('name'), c.get('player')) // ctx.ownerOf : règle du jeu (Grandal)
     const mine = owner.toLowerCase() === ctx.me().name.toLowerCase()
     return { label: initials, color: BADGES.find((b) => b.name === c.get('badge'))?.color ?? '#9aa4b5', hidden: !!c.get('hidden'), isChar: true, mine, pj: !!owner || !!ctx.allPC } // allPC (Grandal) : tous en PJ
   }
