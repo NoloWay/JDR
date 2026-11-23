@@ -27,6 +27,7 @@ export const STATS = [
   { key: 'charisme', label: 'Charisme' },
 ]
 export const STATS_FIRST_GROUP = 3 // les 3 premières lignes, légèrement écartées des 6 autres
+export const STAT_DEFAULT = 10 // valeur d'une caractéristique non saisie (modificateur +0)
 export const EFFECTS = [
   { key: 'race', label: 'Race' },
   { key: 'classes', label: 'Classes' },
@@ -219,8 +220,9 @@ export function setupGrandalSheets(ctx) {
       })))
 
     // ---- Caractéristiques : 9 lignes (3 puis 6), 3 colonnes (nom, valeur, modificateur calculé) ----
-    const statValue = (key) => num(c.get(`stat:${key}`)?.value, 0)
-    const setStat = (key) => (e) => c.set(`stat:${key}`, { value: num(e.target.value, 0) })
+    // Caractéristique jamais saisie (ou champ vidé) : STAT_DEFAULT, soit un modificateur de +0
+    const statValue = (key) => num(c.get(`stat:${key}`)?.value, STAT_DEFAULT)
+    const setStat = (key) => (e) => c.set(`stat:${key}`, { value: num(e.target.value, STAT_DEFAULT) })
     const row = ({ key, label }, i) => {
       const value = statValue(key)
       const mod = modifier(value)
