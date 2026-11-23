@@ -415,7 +415,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-effect-edit textarea { grid-column: 1 / -1; resize: vertical; }
 
 /* Fiche étroite : caractéristiques puis effets l'un sous l'autre */
-@container (max-width: 760px) {
+@container (max-width: 1000px) {
   .gs-body { grid-template-columns: 1fr; }
 }
 /* Fiche très étroite : boutons d'action sur leur propre ligne, portrait plus petit */
@@ -484,3 +484,24 @@ button.small, .btn.small, .profile-chip { font-size: 0.88rem; }
 }
 *::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #d9a441, #a87a26); }
 *::-webkit-scrollbar-corner { background: transparent; }
+
+/* Fiche : sections plus grandes et plus aérées (on fait défiler plutôt que de tout serrer) */
+.gs-body { gap: 40px; margin-top: 28px; }
+.gs-skills-sec { margin-top: 36px; }
+.gs-sec-title { font-size: 1.1rem; margin-bottom: 16px; padding-bottom: 9px; }
+.gs-effects { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 20px; }
+.gs-skills { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 20px; }
+.gs-effect-group, .gs-skill-group { padding: 16px 18px 18px; min-height: 120px; }
+.gs-effect-group h4, .gs-skill-group h4 { font-size: 1rem; margin-bottom: 12px; }
+.gs-effect-group ul, .gs-skill-group ul { gap: 10px; }
+.gs-effect-group li p { font-size: 1rem; margin-top: 4px; }
+.gs-effect-group li, .gs-skill, .gs-effect-group > p, .gs-skill-group > p { font-size: 1.05rem; }
+.gs-effect-edit, .gs-skill-edit { margin-bottom: 12px; gap: 6px; }
+.gs-stats th, .gs-stats td { padding: 10px 8px; }
+.gs-stats th { font-size: 1.05rem; }
+.gs-stats .gs-value { font-size: 1.25rem; }
+.gs-stats .gs-mod { font-size: 1.1rem; }
+.gs-stats tr.gs-gap td { height: 22px; }
+.gs-stats thead th { font-size: 0.85rem; }
+.gs-eff-ctl input.num { width: 54px; }
+.gs-step { width: 26px; height: 28px; }

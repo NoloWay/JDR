@@ -33,14 +33,15 @@ export const STATS = [
 export const STATS_FIRST_GROUP = 3 // les 3 premières lignes, légèrement écartées des 6 autres
 export const STAT_DEFAULT = 10 // valeur d'une caractéristique non saisie (modificateur +0)
 export const EFFECTS = [
+  { key: 'temporary', label: 'Temporaires' },
   { key: 'race', label: 'Race' },
   { key: 'classes', label: 'Classes' },
   { key: 'equipment', label: 'Équipement' },
   { key: 'unique', label: 'Uniques' },
-  { key: 'temporary', label: 'Temporaires' },
 ]
 // Compétences : catégories dans l'ordre, niveaux d'apprentissage et bonus associé (jamais stocké : déduit du niveau)
 export const SKILL_CATEGORIES = [
+  { key: 'generales', label: 'Générales' },
   { key: 'domaines', label: 'Domaines' },
   { key: 'langages', label: 'Langages' },
   { key: 'armes', label: 'Armes' },
