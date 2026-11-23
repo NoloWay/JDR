@@ -182,6 +182,8 @@ $('btn-new-sheet').addEventListener('click', () => sheets.create())
 let party = null
 function setView(v) {
   const view = v === 'roster' ? 'roster' : 'map'
+  // Une fiche ouverte recouvre les deux onglets : changer d'onglet la referme pour montrer l'onglet choisi
+  sheets.close()
   if (view !== 'roster') party?.leaveRoster()
   $('roster').hidden = view !== 'roster'
   store.set('view', view)

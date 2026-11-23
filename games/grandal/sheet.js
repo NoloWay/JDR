@@ -5,7 +5,8 @@
 //   level                            niveau général (nombre, « LV 1 »)
 //   classes                          [{ name, level }] niveaux de classes (« Guerrier LV 1 »)
 //   effects:race | effects:classes | effects:equipment | effects:unique   effets passifs, [{ name, desc }]
-//   stat:<clé>                       { value, mod } pour chaque caractéristique (STATS)
+//   stat:<clé>                       { value } pour chaque caractéristique (STATS) ; modificateur calculé (modifier),
+//                                    jamais stocké (un ancien champ mod est ignoré)
 //   player, hidden                   joueur propriétaire (profil joueur, choisi par le MJ), fiche cachée aux joueurs
 // Les listes et les caractéristiques sont des valeurs simples (remplacées en entier à chaque modification) :
 // export / import directs ; une caractéristique par clé pour que deux personnes n'écrasent pas leurs modifications.
@@ -34,6 +35,8 @@ export const EFFECTS = [
 ]
 const PORTRAIT_SIZE = 512
 
+/** Modificateur d'une caractéristique : (valeur − 10) / 2, arrondi à l'inférieur (8 → −1, 9 → −1, 10 → +0, 13 → +1) */
+export const modifier = (value) => Math.floor((value - 10) / 2)
 const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '+0')
 const num = (v, def = 0) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Math.round(Number(v)) : def)
 
@@ -184,7 +187,8 @@ export function setupGrandalSheets(ctx) {
       !ed && owner && h('span', { class: 'tag' }, `Joueur · ${owner}`),
       !ed && isGM && c.get('hidden') && h('span', { class: 'tag' }, 'Cachée'),
       mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; render() } }, ed ? 'Terminer' : 'Modifier'),
-      h('button', { class: 'icon', title: 'Fermer', onclick: close }, '×'))
+      // Croix dessinée en CSS (deux traits) : le caractère « × » n'est jamais centré pile, selon la police
+      h('button', { class: 'gs-close', title: 'Fermer la fiche', 'aria-label': 'Fermer la fiche', onclick: close }))
 
     // MJ : joueur propriétaire, visibilité, suppression
     const gmTools = ed && isGM && h('div', { class: 'gs-gm' },
@@ -214,15 +218,16 @@ export function setupGrandalSheets(ctx) {
               : h('p', { class: 'muted' }, 'Aucun'))
       })))
 
-    // ---- Caractéristiques : 9 lignes (3 puis 6), 3 colonnes (nom, valeur, modificateur) ----
-    const stat = (key) => ({ value: 0, mod: 0, ...(c.get(`stat:${key}`) ?? {}) })
-    const setStat = (key, part) => (e) => c.set(`stat:${key}`, { ...stat(key), [part]: num(e.target.value, 0) })
+    // ---- Caractéristiques : 9 lignes (3 puis 6), 3 colonnes (nom, valeur, modificateur calculé) ----
+    const statValue = (key) => num(c.get(`stat:${key}`)?.value, 0)
+    const setStat = (key) => (e) => c.set(`stat:${key}`, { value: num(e.target.value, 0) })
     const row = ({ key, label }, i) => {
-      const { value, mod } = stat(key)
+      const value = statValue(key)
+      const mod = modifier(value)
       return h('tr', { class: i === STATS_FIRST_GROUP - 1 ? 'gs-group-end' : null },
         h('th', { scope: 'row' }, label),
-        h('td', { class: 'gs-value' }, ed ? h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur`, onchange: setStat(key, 'value') }) : value),
-        h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}` }, ed ? h('input', { type: 'number', class: 'num', value: mod, 'aria-label': `${label} : modificateur`, onchange: setStat(key, 'mod') }) : signed(mod)))
+        h('td', { class: 'gs-value' }, ed ? h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur`, onchange: setStat(key) }) : value),
+        h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}`, title: 'Modificateur = (valeur − 10) ÷ 2, arrondi à l’inférieur' }, signed(mod)))
     }
     const statsTable = h('section', { class: 'gs-sec' }, h('h3', { class: 'gs-sec-title' }, 'Caractéristiques'),
       h('table', { class: 'gs-stats' }, h('tbody', {}, STATS.flatMap((s, i) => (i === STATS_FIRST_GROUP - 1
