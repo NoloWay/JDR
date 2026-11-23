@@ -359,7 +359,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-gm .danger { margin-left: auto; }
 
 /* Corps : caractéristiques à gauche, effets passifs à droite */
-.gs-body { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 28px; align-items: start; margin-top: 18px; }
+.gs-body { display: grid; grid-template-columns: minmax(260px, max-content) minmax(0, 1fr); gap: 28px; align-items: start; margin-top: 18px; }
 .gs-sec-title {
   margin: 0 0 10px; padding-bottom: 6px;
   font-family: var(--display); font-weight: 600; font-size: 0.95rem; letter-spacing: 0.14em; text-transform: uppercase;
@@ -368,7 +368,7 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 
 /* Tableau des caractéristiques : 9 lignes (3, un espace, puis 6), 3 colonnes */
 .gs-stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.gs-stats th, .gs-stats td { padding: 5px 10px; border-bottom: 1px solid rgba(74, 56, 36, 0.55); }
+.gs-stats th, .gs-stats td { padding: 5px 6px; border-bottom: 1px solid rgba(74, 56, 36, 0.55); }
 .gs-stats th { text-align: left; font-weight: 500; }
 .gs-stats td { text-align: center; width: 70px; }
 .gs-stats .gs-value { font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
@@ -445,3 +445,15 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .gs-skill-bonus { color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
 .gs-skill-edit { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px; align-items: center; margin-bottom: 6px; }
 .gs-skill-edit input { min-width: 0; }
+
+/* Caractéristiques : colonnes base / effective, valeur effective ajustable à la volée */
+.gs-stats thead th { font-family: var(--display); font-size: 0.72rem; letter-spacing: 0.08em; font-weight: 600; color: var(--muted); text-align: center; padding-bottom: 3px; }
+.gs-stats thead th:first-child { text-align: left; }
+.gs-stats td.gs-eff { width: auto; white-space: nowrap; }
+.gs-stats td.gs-base { color: var(--muted); }
+.gs-stats td.gs-eff.up .num, .gs-stats td.gs-eff.up:not(:has(.num)) { color: var(--ok); }
+.gs-stats td.gs-eff.down .num, .gs-stats td.gs-eff.down:not(:has(.num)) { color: var(--danger); }
+.gs-eff-ctl { display: inline-flex; align-items: center; gap: 3px; }
+.gs-eff-ctl input.num { width: 46px; font-weight: 700; }
+.gs-step { padding: 0; width: 22px; height: 24px; line-height: 1; font-size: 0.95rem; border-radius: 3px; }
+.gs-reset { font-size: 0.8rem; color: var(--muted); }

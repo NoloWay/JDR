@@ -4,9 +4,10 @@
 //   name, gender, race, age          généralités (texte)
 //   level                            niveau général (nombre, « LV 1 »)
 //   classes                          [{ name, level }] niveaux de classes (« Guerrier LV 1 »)
-//   effects:race | effects:classes | effects:equipment | effects:unique   effets passifs, [{ name, desc }]
-//   stat:<clé>                       { value } pour chaque caractéristique (STATS) ; modificateur calculé (modifier),
-//                                    jamais stocké (un ancien champ mod est ignoré)
+//   effects:race | effects:classes | effects:equipment | effects:unique | effects:temporary   effets passifs, [{ name, desc }]
+//   stat:<clé>                       { value, adj } pour chaque caractéristique (STATS) : value = valeur de base (inchangée par les
+//                                    effets), adj = écart temporaire (+/−, 0 si absent) ; valeur effective = value + adj ;
+//                                    modificateur calculé sur la valeur effective (modifier), jamais stocké (un ancien champ mod est ignoré)
 //   skills:<catégorie>               [{ name, level }] compétences (SKILL_CATEGORIES), level = connaissance | expertise | maitrise ;
 //                                    le bonus (+1 / +2 / +3) se déduit du niveau, jamais stocké
 //   player                           joueur propriétaire (profil joueur, choisi par le MJ)
@@ -36,6 +37,7 @@ export const EFFECTS = [
   { key: 'classes', label: 'Classes' },
   { key: 'equipment', label: 'Équipement' },
   { key: 'unique', label: 'Uniques' },
+  { key: 'temporary', label: 'Temporaires' },
 ]
 // Compétences : catégories dans l'ordre, niveaux d'apprentissage et bonus associé (jamais stocké : déduit du niveau)
 export const SKILL_CATEGORIES = [
@@ -251,18 +253,34 @@ export function setupGrandalSheets(ctx) {
 
     // ---- Caractéristiques : 9 lignes (3 puis 6), 3 colonnes (nom, valeur, modificateur calculé) ----
     // Caractéristique jamais saisie (ou champ vidé) : STAT_DEFAULT, soit un modificateur de +0
-    const statValue = (key) => num(c.get(`stat:${key}`)?.value, STAT_DEFAULT)
-    const setStat = (key) => (e) => c.set(`stat:${key}`, { value: num(e.target.value, STAT_DEFAULT) })
+    const statBase = (key) => num(c.get(`stat:${key}`)?.value, STAT_DEFAULT)
+    const statAdj = (key) => num(c.get(`stat:${key}`)?.adj, 0)
+    const statValue = (key) => statBase(key) + statAdj(key) // valeur effective
+    // Écriture d'un des deux champs sans écraser l'autre ; adj = 0 n'est pas stocké
+    const writeStat = (key, base, adj) => c.set(`stat:${key}`, adj ? { value: base, adj } : { value: base })
+    const setStat = (key) => (e) => writeStat(key, num(e.target.value, STAT_DEFAULT), statAdj(key))
+    const setAdj = (key, adj) => writeStat(key, statBase(key), adj)
     // Jet d'une caractéristique : d20, réussite à sa valeur ou plus (games/grandal/dice.js).
     // Bouton visible pour tous, cliquable par le MJ et le joueur propriétaire seulement (inactif pour les autres)
     const showRoll = !!ctx.onRoll
     const canRoll = mayEdit && showRoll
     const row = ({ key, label }, i) => {
-      const value = statValue(key)
+      const base = statBase(key)
+      const adj = statAdj(key)
+      const value = base + adj
       const mod = modifier(value)
       return h('tr', { class: i === STATS_FIRST_GROUP - 1 ? 'gs-group-end' : null },
         h('th', { scope: 'row' }, label),
-        h('td', { class: 'gs-value' }, ed ? h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur`, onchange: setStat(key) }) : value),
+        h('td', { class: 'gs-value gs-base' }, ed ? h('input', { type: 'number', class: 'num', value: base, 'aria-label': `${label} : valeur de base`, onchange: setStat(key) }) : base),
+        // Valeur effective = base + écart ; modifiable à la volée (− / + ou saisie directe) par le MJ et le propriétaire, sans toucher à la base
+        h('td', { class: `gs-value gs-eff${adj > 0 ? ' up' : adj < 0 ? ' down' : ''}`, title: adj ? `Base ${base} ${adj > 0 ? '+' : '−'} ${Math.abs(adj)}` : 'Valeur effective = valeur de base' },
+          mayEdit
+            ? h('div', { class: 'gs-eff-ctl' },
+              h('button', { class: 'gs-step', title: 'Diminuer la valeur effective', 'aria-label': `${label} : diminuer la valeur effective`, onclick: () => setAdj(key, adj - 1) }, '−'),
+              h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur effective`, onchange: (e) => setAdj(key, num(e.target.value, value) - base) }),
+              h('button', { class: 'gs-step', title: 'Augmenter la valeur effective', 'aria-label': `${label} : augmenter la valeur effective`, onclick: () => setAdj(key, adj + 1) }, '+'),
+              adj !== 0 && h('button', { class: 'gs-step gs-reset', title: `Revenir à la valeur de base (${base})`, 'aria-label': `${label} : revenir à la valeur de base`, onclick: () => setAdj(key, 0) }, '↺'))
+            : value),
         h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}`, title: 'Modificateur = (valeur − 10) ÷ 2, arrondi à l’inférieur' }, signed(mod)),
         showRoll && h('td', { class: 'gs-roll' }, d20Button({
           disabled: !canRoll,
@@ -274,8 +292,10 @@ export function setupGrandalSheets(ctx) {
         })))
     }
     const statsTable = h('section', { class: 'gs-sec' }, h('h3', { class: 'gs-sec-title' }, 'Caractéristiques'),
-      h('table', { class: 'gs-stats' }, h('tbody', {}, STATS.flatMap((s, i) => (i === STATS_FIRST_GROUP - 1
-        ? [row(s, i), h('tr', { class: 'gs-gap', 'aria-hidden': 'true' }, h('td', { colSpan: showRoll ? 4 : 3 }))]
+      h('table', { class: 'gs-stats' },
+        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Caractéristique'), h('th', { scope: 'col', title: 'Valeur de base' }, 'Base'), h('th', { scope: 'col', title: 'Valeur effective : sert au modificateur et aux jets' }, 'Effective'), h('th', { scope: 'col' }, 'Mod.'), showRoll && h('th', { scope: 'col' }))),
+        h('tbody', {}, STATS.flatMap((s, i) => (i === STATS_FIRST_GROUP - 1
+        ? [row(s, i), h('tr', { class: 'gs-gap', 'aria-hidden': 'true' }, h('td', { colSpan: showRoll ? 5 : 4 }))]
         : [row(s, i)])))))
 
     // ---- Compétences : une liste par catégorie, chaque entrée = nom · niveau d'apprentissage · bonus ----
