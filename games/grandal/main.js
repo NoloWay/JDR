@@ -16,6 +16,7 @@ import { setupSheets, replaceCharacters } from '../../src/sheets.js'
 import { setupBoard } from '../../src/board.js'
 import { setupMusic } from '../../src/music.js'
 import { PLAYERS, OBSERVER, presetOf, ownerOf, BADGES } from '../../src/rules.js'
+import { setupParty } from './party.js'
 
 const GAME = 'grandal'
 
@@ -56,7 +57,7 @@ const tokens = doc.getMap('tokens')
 const log = doc.getArray('log')
 
 // ---------- Plateau : uniquement les cartes / décors (mode « Carte » du plateau de Starboard) ----------
-const board = setupBoard({ doc, me })
+const board = setupBoard({ doc, me, allPC: true }) // allPC : toutes les fiches sont des PJ (jetons en étoile)
 board.setMode('map')
 
 const searchMsg = (text) => {
@@ -160,7 +161,20 @@ log.observe(renderLog)
 doc.getMap('characters').observeDeep(renderLog)
 
 // ---------- Fiches des aventuriers ----------
-const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => {} })
+const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => {}, allPC: true }) // pas de PJ / PNJ dans Grandal
+
+// ---------- Onglets Carte / Fiches (choix local, mémorisé) et vignettes des aventuriers ----------
+let party = null
+function setView(v) {
+  const view = v === 'roster' ? 'roster' : 'map'
+  if (view !== 'roster') party?.leaveRoster()
+  $('roster').hidden = view !== 'roster'
+  store.set('view', view)
+  $('view-tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === view))
+}
+$('view-tabs').addEventListener('click', (e) => { if (e.target.dataset.view) setView(e.target.dataset.view) })
+party = setupParty({ doc, me, sheets, setView })
+setView(store.get('view'))
 
 // ---------- Identité : nom & rôle ----------
 $('name-select').addEventListener('change', (e) => {
@@ -176,6 +190,7 @@ function setRole(r) {
   document.body.classList.toggle('is-gm', role === 'gm')
   renderLog()
   sheets.rerender()
+  party.rerender()
   board.rerender()
   music.rerender()
 }
@@ -183,7 +198,7 @@ document.body.classList.toggle('is-gm', role === 'gm')
 
 // ---------- Export / import JSON ----------
 // Mêmes collections que Starboard, sans celles du vaisseau ni des dossiers
-const COLLECTIONS = ['musicTracks', 'musicPlaylists', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary']
+const COLLECTIONS = ['musicTracks', 'musicPlaylists', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary', 'partySlots', 'status']
 $('btn-export').addEventListener('click', () => {
   const data = {
     game: GAME,
@@ -215,7 +230,7 @@ $('file-import').addEventListener('change', async (e) => {
     return
   }
   const parts = ['scenes', 'tokens', 'log', 'characters', ...COLLECTIONS].filter((k) => data[k] && Object.keys(data[k]).length)
-  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte' }
+  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'PV et mana' }
   if (!parts.length) return alert('Aucune donnée de partie dans ce fichier.')
   if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
   if (parts.includes('scenes')) board.importData(data)

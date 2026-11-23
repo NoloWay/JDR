@@ -69,7 +69,9 @@ const signed = (n) => (n > 0 ? `+${n}` : `${n}`)
 /**
  * Liste de l'équipage (barre latérale) + dossier du personnage.
  * Le dossier s'affiche en consultation ; « Modifier » fait apparaître les champs.
- * ctx : { doc, me() -> { name, isGM }, onRoll(label, target, sides), onOpen() }
+ * ctx : { doc, me() -> { name, isGM }, onRoll(label, target, sides), onOpen(), allPC? }
+ * allPC (facultatif, Grandal) : toutes les fiches sont des personnages joueurs, sans mention « PJ / PNJ ».
+ * Absent (Starboard) : comportement d'origine.
  */
 export function setupSheets(ctx) {
   const characters = ctx.doc.getMap('characters')
@@ -185,14 +187,14 @@ export function setupSheets(ctx) {
         ed
           ? h('select', { onchange: set('badge') }, BADGES.map((b) => h('option', { value: b.name, selected: b.name === data.badge }, `Badge ${b.name}`)))
           : h('span', { class: 'badge-chip' }, h('i'), `Badge ${data.badge}`),
-        !ed && data.player && h('span', { class: 'tag' }, `PJ · ${data.player}`),
+        !ed && data.player && h('span', { class: 'tag' }, ctx.allPC ? `Joueur · ${data.player}` : `PJ · ${data.player}`),
         !ed && isGM && data.hidden && h('span', { class: 'tag' }, 'Cachée'),
         mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; render() } }, ed ? 'Terminer' : 'Modifier'),
         h('button', { class: 'icon', title: 'Fermer', onclick: close }, '×')))
 
     // ---- Identité (édition) ----
     const identity = ed && h('div', { class: 'edit-grid' },
-      field('post', 'Poste'), field('age', 'Âge'), field('country', "Pays d'origine"), field('player', 'Joueur (vide = PNJ)'),
+      field('post', 'Poste'), field('age', 'Âge'), field('country', "Pays d'origine"), field('player', ctx.allPC ? 'Joueur' : 'Joueur (vide = PNJ)'),
       isGM && h('div', { class: 'edit-gm' },
         h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: data.hidden, onchange: (e) => c.set('hidden', e.target.checked) }), 'Cachée aux joueurs'),

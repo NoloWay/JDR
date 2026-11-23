@@ -21,6 +21,10 @@
           <option value="gm">MJ</option>
         </select>
       </div>
+      <nav class="view-tabs" id="view-tabs">
+        <button data-view="map">Carte</button>
+        <button data-view="roster">Fiches</button>
+      </nav>
       <div class="tools">
         <div class="seg" id="roll-mode" title="Mode des jets">
           <button data-mode="normal" class="on">Normal</button>
@@ -43,17 +47,15 @@
     </header>
 
     <main>
-      <aside class="crew">
-        <h2>Aventuriers
-          <span class="crew-tools">
-            <select id="crew-sort" class="small" title="Trier les aventuriers">
-              <option value="name">A→Z</option>
-              <option value="badge">Badge</option>
-            </select>
-            <button id="btn-new-sheet" class="small">+ Fiche</button>
-          </span>
-        </h2>
-        <ul id="crew-list"></ul>
+      <!-- Aventuriers : 6 vignettes de même taille, sans défilement (games/grandal/party.js) -->
+      <aside class="crew party">
+        <h2>Aventuriers</h2>
+        <div id="party-tiles" class="party-tiles"></div>
+        <!-- Liste de src/sheets.js : requise par le module partagé, non affichée (remplacée par l'onglet Fiches) -->
+        <div hidden>
+          <select id="crew-sort"><option value="name">A→Z</option></select>
+          <ul id="crew-list"></ul>
+        </div>
       </aside>
       <div class="stage">
         <canvas id="board"></canvas>
@@ -69,6 +71,15 @@
           <button id="btn-zoom-in" class="small" title="Zoomer">+</button>
           <button id="btn-fit" class="small" title="Recadrer sur la carte">Recadrer</button>
         </div>
+        <!-- Onglet Fiches : toutes les fiches, choix du personnage de chaque vignette -->
+        <section id="roster" class="roster" hidden>
+          <header class="roster-head">
+            <h2>Fiches des aventuriers</h2>
+            <button id="btn-new-sheet">+ Fiche</button>
+          </header>
+          <div id="roster-pick" class="roster-pick" hidden></div>
+          <div id="roster-grid" class="roster-grid"></div>
+        </section>
         <section id="sheet" class="sheet" hidden></section>
       </div>
       <aside class="log">

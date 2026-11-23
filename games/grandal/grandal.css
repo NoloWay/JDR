@@ -42,6 +42,10 @@ body {
 }
 .brand:hover { color: #f0c46a; }
 
+/* Onglets Carte / Fiches */
+.view-tabs button { font-family: var(--display); font-weight: 600; letter-spacing: 0.14em; }
+.view-tabs button.on { text-shadow: 0 0 8px rgba(217, 164, 65, 0.5); }
+
 /* Titres de section : capitales gravées */
 .crew h2, .log h2, .music h2 {
   font-family: var(--display);
@@ -60,6 +64,128 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 /* ---------- Volet des aventuriers ---------- */
 .crew-item:hover { background: rgba(217, 164, 65, 0.08); }
 .crew-item.active { background: rgba(217, 164, 65, 0.16); }
+
+/* ---------- Aventuriers : 6 vignettes égales qui remplissent le volet, sans défilement ---------- */
+.crew.party {
+  width: 270px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.party-tiles {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.tile {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 5px 10px 6px;
+  background: linear-gradient(180deg, rgba(217, 164, 65, 0.07), rgba(0, 0, 0, 0.15)), #1c150e;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.tile:hover { border-color: rgba(217, 164, 65, 0.55); }
+/* La hauteur d'une vignette suit celle de la fenêtre : sur un petit écran, on resserre plutôt que de couper */
+.party-tiles > .tile { container-type: size; }
+@container (max-height: 80px) {
+  .tile-sub { display: none; }
+}
+@container (max-height: 58px) {
+  .tile-stat.stat-mana { display: none; }
+}
+.tile.mine { border-left: 3px solid var(--accent); }
+.tile.is-hidden { opacity: 0.6; border-style: dashed; }
+.tile-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tile-num {
+  flex: none;
+  display: grid; place-items: center;
+  width: 18px; height: 18px;
+  font-family: var(--display); font-size: 0.7rem;
+  color: #1a120a; background: var(--accent); border-radius: 50%;
+}
+.tile-name {
+  flex: 1; min-width: 0;
+  font-family: var(--display); font-weight: 600; font-size: 0.92rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-choose { flex: none; padding: 1px 7px; font-size: 0.72rem; }
+.tile-sub { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-stat { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 6px; font-size: 0.75rem; }
+.tile-stat-label { color: var(--muted); }
+.tile-stat-value { font-variant-numeric: tabular-nums; color: var(--text); }
+.tile-bar { height: 7px; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.6); border-radius: 4px; overflow: hidden; }
+.tile-bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.3s; }
+.stat-hp .tile-bar i { background: linear-gradient(90deg, #8e2a22, #d65a48); }
+.stat-mana .tile-bar i { background: linear-gradient(90deg, #2a4f8e, #5b8fd6); }
+/* Emplacement libre : un cadre en creux, à peine marqué, avec un fleuron au centre (pas de texte) */
+.tile.vacant {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  background: rgba(0, 0, 0, 0.18);
+  border-color: rgba(74, 56, 36, 0.55);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+.tile.vacant:hover { border-color: rgba(74, 56, 36, 0.55); }
+.tile-ornament { font-family: var(--serif); font-size: 1.6rem; line-height: 1; color: rgba(163, 144, 109, 0.22); user-select: none; }
+/* MJ : bouton discret pour remplir l'emplacement, plus visible au survol */
+.tile.vacant.gm { gap: 4px; }
+.tile.vacant .tile-fill { opacity: 0.55; border-color: rgba(217, 164, 65, 0.4); }
+.tile.vacant.gm:hover .tile-fill { opacity: 1; }
+.tile.vacant.gm:hover { border-color: rgba(217, 164, 65, 0.35); }
+.tile-choose { opacity: 0.6; }
+.tile:hover .tile-choose { opacity: 1; }
+@container (max-height: 58px) {
+  .tile-ornament { display: none; }
+}
+
+/* ---------- Onglet Fiches ---------- */
+.roster {
+  position: absolute; inset: 0; z-index: 1;
+  overflow-y: auto;
+  padding: 18px 24px 24px;
+  background:
+    radial-gradient(1000px 300px at 0 0, rgba(217, 164, 65, 0.08), transparent 70%),
+    #1b140d;
+}
+.roster-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.roster-head h2 { margin: 0; font-family: var(--display); font-weight: 600; letter-spacing: 0.1em; color: var(--accent); font-size: 1.2rem; }
+.roster-pick {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 10px 14px;
+  background: rgba(217, 164, 65, 0.12); border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 4px;
+}
+.roster-pick span { flex: 1; color: var(--accent); }
+.roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.roster-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px;
+  background: #211810; border: 1px solid var(--line); border-radius: 4px;
+}
+.roster-card.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.roster-card.is-hidden { border-style: dashed; }
+.roster-card header { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.roster-card h3 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 1rem; }
+.roster-chip { font-size: 0.72rem; padding: 0 6px; border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 3px; color: var(--accent); }
+.roster-chip.hidden-chip { border-color: var(--line); color: var(--muted); }
+.roster-status { display: flex; flex-direction: column; gap: 6px; }
+.roster-stat { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.roster-stat > span:first-child { width: 42px; color: var(--muted); }
+.roster-stat.stat-hp > span:first-child { color: #d65a48; }
+.roster-stat.stat-mana > span:first-child { color: #5b8fd6; }
+.roster-stat input.num { width: 58px; }
+.roster-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.roster-empty { margin: 24px 0; }
 
 /* ---------- Plateau : table de bois sous la carte ---------- */
 .stage {
