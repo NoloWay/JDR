@@ -119,6 +119,7 @@ export function setupGrandalSheets(ctx) {
   const statusUi = statusViews(st)
   let openId = null
   let editing = false
+  let confirmingDelete = false // étape de confirmation de la suppression (dans la fiche, pas de boîte du navigateur)
 
   const ownerName = (c) => ctx.ownerOf(c.get('name'), c.get('player'))
   const isMine = (c) => !!ownerName(c) && ownerName(c).toLowerCase() === ctx.me().name.toLowerCase()
@@ -141,12 +142,13 @@ export function setupGrandalSheets(ctx) {
   function close() {
     openId = null
     editing = false
+    confirmingDelete = false
     sheetEl.hidden = true
     sheetEl.innerHTML = ''
   }
   function open(id) {
     if (!characters.has(id)) return
-    if (id !== openId) editing = false
+    if (id !== openId) { editing = false; confirmingDelete = false }
     ctx.onOpen?.()
     openId = id
     sheetEl.hidden = false
@@ -162,7 +164,6 @@ export function setupGrandalSheets(ctx) {
   }
   function remove(id, name) {
     if (!ctx.me().isGM) return
-    if (!confirm(`Supprimer définitivement la fiche de ${name} (son image, son jeton et sa place dans les vignettes) ?\nPensez à exporter la partie avant si vous voulez pouvoir la récupérer.`)) return
     const tokens = ctx.doc.getMap('tokens')
     const slots = ctx.doc.getMap('partySlots')
     const status = ctx.doc.getMap('status')
@@ -176,7 +177,19 @@ export function setupGrandalSheets(ctx) {
     close()
   }
 
-  const render = liveRender(sheetEl, build)
+  // Un clic ne doit pas perdre son bouton : taper dans un champ puis cliquer (« Supprimer la fiche », « Terminer »…) fait perdre le
+  // focus au champ, donc enregistrer sa valeur et redessiner la fiche entre l'appui et le relâchement, ce qui annulait le clic.
+  // Le rendu attend donc que le bouton de la souris soit relâché.
+  let pressing = false
+  const render = liveRender(sheetEl, build, { busy: () => pressing })
+  sheetEl.addEventListener('pointerdown', () => { pressing = true }, true)
+  const released = () => {
+    if (!pressing) return
+    pressing = false
+    setTimeout(() => { if (render.isPending()) render() }) // après le clic
+  }
+  addEventListener('pointerup', released, true)
+  addEventListener('pointercancel', released, true)
 
   function build() {
     const c = characters.get(openId)
@@ -226,7 +239,7 @@ export function setupGrandalSheets(ctx) {
     // ---- En-tête : actions ----
     const actions = h('div', { class: 'gs-actions' },
       !ed && owner && h('span', { class: 'tag' }, `Joueur · ${owner}`),
-      mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; render() } }, ed ? 'Terminer' : 'Modifier'),
+      mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; confirmingDelete = false; render() } }, ed ? 'Terminer' : 'Modifier'),
       // Croix dessinée en CSS (deux traits) : le caractère « × » n'est jamais centré pile, selon la police
       h('button', { class: 'gs-close', title: 'Fermer la fiche', 'aria-label': 'Fermer la fiche', onclick: close }))
 
@@ -235,7 +248,15 @@ export function setupGrandalSheets(ctx) {
       field('Joueur', h('select', { onchange: set('player') },
         h('option', { value: '', selected: !owner }, '— Aucun —'),
         ctx.playerChoices().map((n) => h('option', { value: n, selected: n === owner }, n)))),
-      h('button', { class: 'small danger', onclick: () => remove(openId, get('name')) }, 'Supprimer la fiche'))
+      confirmingDelete
+        // Deuxième étape : rien n'est supprimé avant « Oui, supprimer »
+        ? h('div', { class: 'gs-confirm', role: 'alertdialog', 'aria-label': 'Confirmer la suppression de la fiche' },
+          h('p', {}, h('b', {}, `Supprimer définitivement la fiche de ${get('name') || 'Sans nom'} ?`),
+            ' Son image, son jeton, sa place dans les vignettes et son statut seront perdus. Pensez à exporter la partie avant si vous voulez pouvoir la récupérer.'),
+          h('div', { class: 'gs-confirm-actions' },
+            h('button', { class: 'small', onclick: () => { confirmingDelete = false; render() } }, 'Annuler'),
+            h('button', { class: 'small danger', onclick: () => remove(openId, get('name')) }, 'Oui, supprimer')))
+        : h('button', { class: 'small danger', onclick: () => { confirmingDelete = true; render() } }, 'Supprimer la fiche'))
 
     // ---- Effets passifs ----
     const effects = h('section', { class: 'gs-sec' }, h('h3', { class: 'gs-sec-title' }, 'Effets passifs'),

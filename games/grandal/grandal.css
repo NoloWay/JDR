@@ -627,3 +627,25 @@ button.st-chip:hover { border-color: var(--accent); }
 .roster-open span { transition: transform 0.15s; }
 .roster-open:hover span { transform: translateX(3px); }
 .roster-stat b { min-width: 28px; font-variant-numeric: tabular-nums; }
+
+/* HP négatifs : la barre rouge laisse la place, à l'identique, à une barre sombre rayée qui se remplit à mesure que les HP descendent sous zéro (jusqu'à −maximum) */
+.st-gauge.is-neg { border-color: #8a1634; box-shadow: 0 0 8px rgba(190, 30, 70, 0.55); background: repeating-linear-gradient(135deg, rgba(120, 20, 40, 0.28) 0 4px, rgba(0, 0, 0, 0.45) 4px 8px); }
+.st-neg-fill { position: absolute; inset: 0 auto 0 0; transition: width 0.3s; background: linear-gradient(90deg, #4a0a1c, #8a1634); box-shadow: 0 0 8px rgba(190, 30, 70, 0.8); }
+.st-gauge.is-neg .st-gauge-text { color: #ffd3dc; }
+/* Même principe sur la barre fine des vignettes Aventuriers */
+.tile-bar.is-neg { border-color: #8a1634; background: repeating-linear-gradient(135deg, rgba(120, 20, 40, 0.35) 0 3px, rgba(0, 0, 0, 0.5) 3px 6px); }
+.tile-neg { position: absolute; inset: 0; }
+.tile-bar { position: relative; }
+.tile-neg b { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #5a0f22, #b01e45); transition: width 0.3s; }
+/* − / + des barres de vignette */
+.tile-stat { grid-template-columns: 30px minmax(0, 1fr) auto; }
+.tile-stat-value { display: inline-flex; align-items: center; gap: 3px; }
+.tile-stat-num { min-width: 3.4ch; text-align: center; }
+.tile-pm { padding: 0; width: 18px; height: 18px; line-height: 1; font-size: 0.95rem; border-radius: 3px; color: var(--muted); }
+.tile-pm:hover { color: var(--text); border-color: var(--accent); }
+
+/* Confirmation de la suppression d'une fiche (dans l'encadré MJ) */
+.gs-confirm { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 10px 14px; border: 1px solid rgba(214, 90, 72, 0.7); border-radius: 4px; background: rgba(181, 71, 58, 0.14); }
+.gs-confirm p { margin: 0; flex: 1 1 320px; }
+.gs-confirm-actions { display: flex; gap: 8px; margin-left: auto; }
+.gs-gm .gs-confirm-actions .danger { margin-left: 0; }

@@ -9,13 +9,10 @@
 // Les fiches elles-mêmes restent celles de src/sheets.js (doc.getMap('characters')), ouvertes avec sheets.open(id).
 import { h, liveRender } from '../../src/dom.js'
 import { CHARACTER_MIME } from '../../src/sheets.js'
-import { setupStatus, statusViews } from './status.js'
+import { setupStatus, statusViews, RES } from './status.js'
 
 export const SLOTS = 6
-const STATUS = [
-  { key: 'hp', label: 'HP', title: 'Points de vie', max: 'hpMax', def: 10 },
-  { key: 'mana', label: 'MP', title: 'Points de mana', max: 'manaMax', def: 10 },
-]
+const STATUS = [RES.hp, RES.mp] // HP (peuvent descendre jusqu'à −maximum) et MP : mêmes données que la fiche (status.js)
 
 /** ctx : { doc, me() → { name, isGM }, sheets, setView(view), ownerOf(nom, joueur), profiles (presence.js) } */
 export function setupParty(ctx) {
@@ -47,19 +44,24 @@ export function setupParty(ctx) {
   const canSee = () => true
   const canEdit = (c) => ctx.me().isGM || isMine(c)
 
-  const value = (id, key, def) => { const v = status.get(`${id}|${key}`); return typeof v === 'number' ? v : def }
-  const setValue = (id, key, n) => { if (Number.isFinite(n)) status.set(`${id}|${key}`, Math.max(0, Math.round(n))) }
   const slotOf = (id) => [...slots.entries()].filter(([, v]) => v === id).map(([k]) => Number(k))
 
   // ---------- Vignettes ----------
-  function bar(id, s) {
-    const max = value(id, s.max, s.def)
-    const cur = Math.min(value(id, s.key, max), max)
-    const pct = max > 0 ? Math.round((cur / max) * 100) : 0
-    return h('div', { class: `tile-stat stat-${s.key}`, title: `${s.title} : ${cur} / ${max}` },
+  // Barre d'une vignette : − / + pour le MJ et le propriétaire (Maj : de 5 en 5) ; sous zéro, la barre des HP devient une barre sombre rayée
+  function bar(id, s, edit) {
+    const { cur, max } = st.read(id, s)
+    const step = (d) => (e) => { e.stopPropagation(); st.setCur(id, s, cur + d * (e.shiftKey ? 5 : 1)) }
+    const hp = s === RES.hp
+    const fill = (n) => (max > 0 ? Math.round((Math.max(n, 0) / max) * 100) : 0)
+    return h('div', { class: `tile-stat stat-${s.key}`, title: `${s.title} : ${cur} / ${max}${hp ? ` (jusqu'à −${max})` : ''}` },
       h('span', { class: 'tile-stat-label' }, s.label),
-      h('span', { class: 'tile-bar' }, h('i', { style: `width:${pct}%` })),
-      h('span', { class: 'tile-stat-value' }, `${cur}/${max}`))
+      hp && cur < 0
+        ? h('span', { class: 'tile-bar is-neg' }, h('span', { class: 'tile-neg' }, h('b', { style: `width:${max > 0 ? Math.round((Math.min(-cur, max) / max) * 100) : 100}%` })))
+        : h('span', { class: 'tile-bar' }, h('i', { style: `width:${fill(cur)}%` })),
+      h('span', { class: 'tile-stat-value' },
+        edit && h('button', { class: 'tile-pm', type: 'button', title: `${s.label} −1 (Maj : −5)`, 'aria-label': `${s.label} : −1`, onclick: step(-1) }, '−'),
+        h('span', { class: 'tile-stat-num' }, `${cur < 0 ? '−' + -cur : cur}/${max}`),
+        edit && h('button', { class: 'tile-pm', type: 'button', title: `${s.label} +1 (Maj : +5)`, 'aria-label': `${s.label} : +1`, onclick: step(1) }, '+')))
   }
 
   function tile(i) {
@@ -91,7 +93,7 @@ export function setupParty(ctx) {
     h('header', { class: 'tile-head' },
       h('span', { class: 'tile-name' }, c.get('name') || 'Sans nom'),
       choose('⇄', 'tile-choose')),
-    STATUS.map((s) => bar(id, s)),
+    STATUS.map((s) => bar(id, s, canEdit(c))),
     statusUi.chips(id, canEdit(c)))
   }
 
@@ -124,13 +126,12 @@ export function setupParty(ctx) {
   function statusEditor(id, c) {
     const edit = canEdit(c)
     return h('div', { class: 'roster-status' }, STATUS.map((s) => {
-      const max = value(id, s.max, s.def)
-      const cur = Math.min(value(id, s.key, max), max)
+      const { cur, max } = st.read(id, s)
       return h('label', { class: `roster-stat stat-${s.key}`, title: s.title },
         h('span', {}, s.label),
         edit
           // Plafond relu au moment d'écrire : le maximum a pu changer entre-temps (autre joueur, autre champ)
-          ? [h('input', { type: 'number', min: 0, class: 'num', value: cur, onchange: (e) => setValue(id, s.key, Math.min(Number(e.target.value), value(id, s.max, s.def))) }),
+          ? [h('input', { type: 'number', min: s === RES.hp ? -max : 0, class: 'num', value: cur, 'aria-label': `${s.label} : valeur courante`, onchange: (e) => st.setCur(id, s, Number(e.target.value)) }),
             h('span', { class: 'muted' }, '/'),
             // Le maximum ne se modifie que depuis la fiche (bouton « Modifier »)
             h('b', { title: 'Le maximum se modifie dans la fiche (bouton « Modifier »)' }, max)]

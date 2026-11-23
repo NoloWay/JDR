@@ -15,15 +15,17 @@ export function h(tag, attrs = {}, ...children) {
 /**
  * Renvoie une fonction qui redessine `root` avec `render()`, sauf pendant qu'on écrit dans un de ses champs :
  * le rendu attend alors que le champ perde le focus (sinon le texte tapé serait écrasé).
+ * Option facultative `busy()` (inutilisée par Starboard) : tant qu'elle renvoie vrai (ex. un bouton est enfoncé), le rendu attend
+ * aussi ; `run.isPending()` dit si un rendu attend, à relancer quand `busy` redevient faux.
  */
-export function liveRender(root, render) {
+export function liveRender(root, render, { busy = () => false } = {}) {
   let pending = false
   const typing = () => {
     const a = document.activeElement
     return root.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox', 'range', 'button'].includes(a.type)))
   }
   const run = () => {
-    if (typing()) { pending = true; return }
+    if (typing() || busy()) { pending = true; return }
     pending = false
     const scroll = root.scrollTop
     root.innerHTML = ''
@@ -31,6 +33,7 @@ export function liveRender(root, render) {
     root.scrollTop = scroll
   }
   root.addEventListener('focusout', () => setTimeout(() => { if (pending) run() }))
+  run.isPending = () => pending
   return run
 }
 
