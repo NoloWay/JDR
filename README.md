@@ -2,7 +2,9 @@
 
 Plateau de jeu de rôle spatial en ligne, gratuit, sans serveur. Voir `CLAUDE.md` pour le contexte complet et la feuille de route.
 
-Site en ligne : **https://noloway.github.io/JDR/** (accueil multi-jeux ; Starboard est le premier jeu).
+Site en ligne : **https://noloway.github.io/JDR/** (accueil multi-jeux : Starboard, science-fiction ; Grandal, médiéval fantastique, premier jet).
+
+Grandal (`/games/grandal/#code`) reprend le plateau de Starboard avec un thème médiéval : seulement des cartes / décors (le MJ en crée autant qu'il veut et change l'image de fond à volonté), une catégorie « Aventuriers », les mêmes fiches, dés, chronique et musique.
 
 ## Lancer en local
 ```bash

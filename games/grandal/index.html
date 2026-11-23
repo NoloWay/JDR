@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grandal</title>
+  </head>
+  <body>
+    <!-- Même structure que Starboard (mêmes identifiants : les modules partagés de src/ s'y branchent),
+         sans onglets Vaisseau / Carte, sans vaisseau, dossier du personnel ni dossiers : une seule catégorie « Aventuriers ». -->
+    <header class="topbar">
+      <a class="brand" href="../../" title="Retour à l'accueil">GRANDAL</a>
+      <div class="status">
+        <span id="room-label">—</span>
+        <span id="peer-count">Joueurs connectés : 1</span>
+      </div>
+      <div class="identity">
+        <select id="name-select" title="Qui es-tu ?"></select>
+        <select id="role-select" title="Rôle">
+          <option value="player">Joueur</option>
+          <option value="gm">MJ</option>
+        </select>
+      </div>
+      <div class="tools">
+        <div class="seg" id="roll-mode" title="Mode des jets">
+          <button data-mode="normal" class="on">Normal</button>
+          <button data-mode="adv">Avantage</button>
+          <button data-mode="dis">Désavantage</button>
+        </div>
+        <label class="check" title="Jet visible seulement par toi et le MJ">
+          <input type="checkbox" id="secret-roll" /> Jet secret
+        </label>
+        <span class="sep"></span>
+        <button id="btn-add">+ Pion</button>
+        <button id="btn-d6">d6</button>
+        <button id="btn-d20">d20</button>
+        <button id="btn-d100">d100</button>
+        <span class="sep"></span>
+        <button id="btn-export">Exporter</button>
+        <label class="btn gm-only" for="file-import" title="Remplacer la partie par un fichier (MJ)">Importer</label>
+        <input id="file-import" type="file" accept="application/json" hidden />
+      </div>
+    </header>
+
+    <main>
+      <aside class="crew">
+        <h2>Aventuriers
+          <span class="crew-tools">
+            <select id="crew-sort" class="small" title="Trier les aventuriers">
+              <option value="name">A→Z</option>
+              <option value="badge">Badge</option>
+            </select>
+            <button id="btn-new-sheet" class="small">+ Fiche</button>
+          </span>
+        </h2>
+        <ul id="crew-list"></ul>
+      </aside>
+      <div class="stage">
+        <canvas id="board"></canvas>
+        <div id="scene-bar" class="stage-bar"></div>
+        <div class="search-bar">
+          <input id="token-search" list="token-names" placeholder="Chercher un aventurier…" title="Entrée : centre la vue sur son jeton" />
+          <datalist id="token-names"></datalist>
+          <span id="token-search-msg" class="muted"></span>
+        </div>
+        <div class="zoom-bar">
+          <button id="btn-zoom-out" class="small" title="Dézoomer">−</button>
+          <span id="zoom-label">100 %</span>
+          <button id="btn-zoom-in" class="small" title="Zoomer">+</button>
+          <button id="btn-fit" class="small" title="Recadrer sur la carte">Recadrer</button>
+        </div>
+        <section id="sheet" class="sheet" hidden></section>
+      </div>
+      <aside class="log">
+        <section id="music" class="music"></section>
+        <h2>Chronique</h2>
+        <ul id="log-list"></ul>
+      </aside>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

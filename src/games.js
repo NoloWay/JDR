@@ -12,6 +12,9 @@
 //      localStorage par « <id>: ». Sinon un même #code mélangerait les parties des deux jeux.
 //      L'`id` sert aussi à l'accueil pour lister les parties enregistrées de chaque jeu.
 
+// Polices des vignettes (auto-hébergées, téléchargées seulement quand une vignette les affiche)
+import '@fontsource/cinzel/700.css'
+
 export const SITE_NAME = 'Plateaux JDR'
 
 export const GAMES = [
@@ -31,6 +34,20 @@ export const GAMES = [
       shadow: '0 0 12px rgba(56, 232, 255, 0.8)',
     },
   },
-  // { id: 'exemple', name: 'Exemple', genre: '…', description: '…', href: './games/exemple/',
-  //   theme: { background: '#3b2f2f', color: '#f3e3c3', font: 'Georgia, serif' } },
+  {
+    id: 'grandal',
+    name: 'Grandal',
+    genre: 'Médiéval fantastique',
+    description: 'Les aventuriers de Grandal : cartes et décors du MJ, fiches, dés, chronique et musique partagés.',
+    href: './games/grandal/',
+    // Même esthétique que le jeu (games/grandal/grandal.css) : or sur bois sombre, capitales gravées
+    theme: {
+      background: 'radial-gradient(ellipse at 50% 30%, rgba(217, 164, 65, 0.28), transparent 60%), repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 2px, transparent 2px 64px), linear-gradient(180deg, #3a2a19, #15100b)',
+      color: '#e2b456',
+      font: "'Cinzel', 'Trajan Pro', Georgia, serif",
+      spacing: '0.22em',
+      textCase: 'uppercase',
+      shadow: '0 2px 0 #000, 0 0 14px rgba(217, 164, 65, 0.45)',
+    },
+  },
 ]

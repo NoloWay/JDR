@@ -1,0 +1,240 @@
+// Grandal : plateau médiéval fantastique (premier jet).
+// Reprend les modules de Starboard (src/) sans les modifier : plateau en mode « Carte » seul (cartes et
+// décors du MJ, interchangeables à volonté), fiches, dés, journal, musique. Pas de vaisseau, de dossier du
+// personnel ni de dossiers du MJ : une seule catégorie « Aventuriers ».
+// Données isolées de Starboard : connect(…, { game: 'grandal' }) et clés localStorage « grandal: ».
+import '@fontsource/cinzel/600.css'
+import '@fontsource/cinzel/700.css'
+import '@fontsource/eb-garamond/400.css'
+import '@fontsource/eb-garamond/500.css'
+import '@fontsource/eb-garamond/600.css'
+import '../../src/style.css'
+import './grandal.css'
+import { connect } from '../../src/net.js'
+import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from '../../src/dice.js'
+import { setupSheets, replaceCharacters } from '../../src/sheets.js'
+import { setupBoard } from '../../src/board.js'
+import { setupMusic } from '../../src/music.js'
+import { PLAYERS, OBSERVER, presetOf, ownerOf, BADGES } from '../../src/rules.js'
+
+const GAME = 'grandal'
+
+// ---------- Salle & identité ----------
+if (!location.hash.slice(1)) {
+  location.hash = Math.random().toString(36).slice(2, 8)
+}
+const roomId = location.hash.slice(1)
+// La salle n'est lue qu'au chargement : un autre #salle (bouton Retour, lien collé) recharge la page
+addEventListener('hashchange', () => { if (location.hash.slice(1) !== roomId) location.reload() })
+
+const $ = (id) => document.getElementById(id)
+const store = {
+  get: (k) => { try { return localStorage.getItem(`${GAME}:${k}`) } catch { return null } },
+  set: (k, v) => { try { localStorage.setItem(`${GAME}:${k}`, v) } catch { /* stockage indisponible */ } },
+}
+// Pseudo : celui de Grandal, sinon celui déjà choisi dans Starboard (même table de joueurs)
+const savedName = store.get('name') ?? (() => { try { return localStorage.getItem('starboard:name') } catch { return null } })()
+let playerName = presetOf(savedName)?.name || OBSERVER
+const roleKey = `role:${roomId}`
+let role = store.get(roleKey) || (presetOf(playerName)?.gm ? 'gm' : 'player')
+const me = () => ({ name: playerName, isGM: role === 'gm' })
+
+$('room-label').textContent = `Salle : ${roomId}`
+function renderNames() {
+  const opts = PLAYERS.map((p) => [p.name, p.gm ? `${p.name} · MJ` : p.name])
+  $('name-select').replaceChildren(...opts.map(([v, t]) => new Option(t, v, false, v === playerName)))
+}
+renderNames()
+$('role-select').value = role
+
+// ---------- État partagé ----------
+const { doc } = connect(roomId, {
+  game: GAME,
+  onPeers: (n) => ($('peer-count').textContent = n < 0 ? 'Hors ligne' : `Joueurs connectés : ${n + 1}`),
+})
+const tokens = doc.getMap('tokens')
+const log = doc.getArray('log')
+
+// ---------- Plateau : uniquement les cartes / décors (mode « Carte » du plateau de Starboard) ----------
+const board = setupBoard({ doc, me })
+board.setMode('map')
+
+const searchMsg = (text) => {
+  $('token-search-msg').textContent = text
+  clearTimeout(searchMsg.timer)
+  searchMsg.timer = setTimeout(() => ($('token-search-msg').textContent = ''), 4000)
+}
+function searchToken(text) {
+  const res = board.findToken(text)
+  if (res.error) return searchMsg(res.error)
+  board.focusToken(res.tokenId)
+  searchMsg('')
+}
+$('token-search').addEventListener('input', (e) => {
+  if (!e.inputType || e.inputType === 'insertReplacementText') return searchToken(e.target.value)
+  $('token-names').replaceChildren(...board.matchCharacters(e.target.value).slice(0, 8).map(([, c]) => new Option(c.get('name'))))
+})
+$('token-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchToken(e.target.value) })
+
+const music = setupMusic({ doc, me })
+
+$('btn-add').addEventListener('click', () => {
+  const label = prompt('Nom du pion (2-3 lettres) ?', playerName.slice(0, 2).toUpperCase())
+  if (label) board.addToken(label)
+})
+
+// ---------- Jets ----------
+let rollMode = 'normal'
+$('roll-mode').addEventListener('click', (e) => {
+  const mode = e.target.dataset?.mode
+  if (!mode) return
+  rollMode = mode
+  $('roll-mode').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode))
+})
+const isSecret = () => $('secret-roll').checked
+function pushLog(entry) {
+  log.push([{ who: playerName, t: Date.now(), secret: isSecret(), ...entry }])
+}
+function rollPlain(sides) {
+  pushLog({ text: `d${sides} → ${rollFree(sides)}` })
+}
+$('btn-d6').addEventListener('click', () => rollPlain(6))
+$('btn-d20').addEventListener('click', () => rollPlain(20))
+$('btn-d100').addEventListener('click', () => rollPlain(100))
+function rollCheck(label, target, sides) {
+  const r = roll(sides, target, rollMode)
+  pushLog({ text: label, roll: { sides, target, mode: r.mode, values: r.values, kept: r.kept, outcome: r.outcome } })
+}
+
+// ---------- Chronique (journal) ----------
+const canSeeEntry = (entry) => !entry.secret || role === 'gm' || entry.who === playerName
+
+// Couleur d'un auteur : or pour le MJ, badge de son aventurier sinon, parchemin éteint par défaut
+const GM_COLOR = '#d9a441'
+const READABLE = { Noir: '#e8dcc0' }
+function characterOf(who) {
+  return [...doc.getMap('characters').values()].find((c) => ownerOf(c.get('name'), c.get('player')) === who)
+}
+function colorOf(who) {
+  if (presetOf(who)?.gm) return GM_COLOR
+  const badge = characterOf(who)?.get('badge')
+  return READABLE[badge] ?? BADGES.find((b) => b.name === badge)?.color ?? '#a8936f'
+}
+const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text ?? '' })
+const hhmm = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+
+function renderLog() {
+  const ul = $('log-list')
+  ul.innerHTML = ''
+  log.toArray().filter(canSeeEntry).slice(-100).reverse().forEach((entry) => {
+    const li = el('li', 'entry')
+    li.style.setProperty('--who', colorOf(entry.who))
+    if (entry.secret) { li.classList.add('secret'); li.title = 'Jet secret : visible par son auteur et le MJ' }
+    const r = entry.roll
+    const [subject, action] = r && entry.text.includes(' · ') ? entry.text.split(' · ', 2) : [null, entry.text]
+
+    const head = el('div', 'entry-head')
+    head.append(el('b', 'who', presetOf(entry.who)?.gm ? `${entry.who} (MJ)` : entry.who))
+    if (subject && subject !== characterOf(entry.who)?.get('name')) head.append(el('span', 'subject', subject))
+    if (entry.secret) head.append(el('span', 'tag', 'secret'))
+    head.append(el('time', '', entry.t ? hhmm(entry.t) : ''))
+    li.append(head)
+
+    const body = el('div', 'entry-body')
+    if (r) {
+      li.classList.add(`outcome-${r.outcome}`)
+      body.append(el('span', 'action', action), el('span', 'roll-result', OUTCOME_LABEL[r.outcome]))
+      const mode = MODE_LABEL[r.mode] ? ` · ${MODE_LABEL[r.mode]}` : ''
+      const dice = r.values.length > 1 ? `${r.values.join(' et ')} → ${r.kept}` : `${r.values[0]}`
+      li.append(body, el('div', 'roll-detail', `🎲 ${dice} pour ${r.target} ou moins (d${r.sides}${mode})`))
+    } else {
+      const free = /^d(\d+) → (\d+)$/.exec(entry.text)
+      if (free) body.append(el('span', 'action', `Dé libre d${free[1]}`), el('span', 'roll-value', free[2]))
+      else body.append(el('span', 'action', entry.text))
+      li.append(body)
+    }
+    ul.append(li)
+  })
+}
+log.observe(renderLog)
+doc.getMap('characters').observeDeep(renderLog)
+
+// ---------- Fiches des aventuriers ----------
+const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => {} })
+
+// ---------- Identité : nom & rôle ----------
+$('name-select').addEventListener('change', (e) => {
+  playerName = e.target.value
+  store.set('name', playerName)
+  setRole(presetOf(playerName).gm ? 'gm' : 'player')
+})
+$('role-select').addEventListener('change', (e) => setRole(e.target.value))
+function setRole(r) {
+  role = r
+  $('role-select').value = r
+  store.set(roleKey, role)
+  document.body.classList.toggle('is-gm', role === 'gm')
+  renderLog()
+  sheets.rerender()
+  board.rerender()
+  music.rerender()
+}
+document.body.classList.toggle('is-gm', role === 'gm')
+
+// ---------- Export / import JSON ----------
+// Mêmes collections que Starboard, sans celles du vaisseau ni des dossiers
+const COLLECTIONS = ['musicTracks', 'musicPlaylists', 'mapPlan', 'templates', 'drawings', 'fog', 'mapLibrary']
+$('btn-export').addEventListener('click', () => {
+  const data = {
+    game: GAME,
+    version: 1,
+    ...board.exportData(), // scenes, images (base64), board
+    tokens: tokens.toJSON(),
+    log: log.toJSON(),
+    characters: doc.getMap('characters').toJSON(),
+    ...Object.fromEntries(COLLECTIONS.map((k) => [k, doc.getMap(k).toJSON()])),
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `grandal-${roomId}.json`
+  a.click()
+  URL.revokeObjectURL(a.href)
+})
+
+$('file-import').addEventListener('change', async (e) => {
+  const file = e.target.files[0]
+  e.target.value = ''
+  if (!file) return
+  if (role !== 'gm') return
+  let data
+  try {
+    data = JSON.parse(await file.text())
+  } catch {
+    alert('Fichier JSON illisible.')
+    return
+  }
+  const parts = ['scenes', 'tokens', 'log', 'characters', ...COLLECTIONS].filter((k) => data[k] && Object.keys(data[k]).length)
+  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte' }
+  if (!parts.length) return alert('Aucune donnée de partie dans ce fichier.')
+  if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
+  if (parts.includes('scenes')) board.importData(data)
+  doc.transact(() => {
+    if (parts.includes('tokens')) {
+      tokens.clear()
+      Object.entries(data.tokens).forEach(([id, t]) => tokens.set(id, t))
+    }
+    if (parts.includes('log')) {
+      log.delete(0, log.length)
+      log.push(data.log)
+    }
+  })
+  if (parts.includes('characters')) replaceCharacters(doc, data.characters)
+  for (const k of COLLECTIONS.filter((p) => parts.includes(p))) {
+    const map = doc.getMap(k)
+    doc.transact(() => { map.clear(); Object.entries(data[k]).forEach(([id, v]) => map.set(id, v)) })
+  }
+})
+
+// ---------- Démarrage ----------
+renderLog()
