@@ -21,6 +21,16 @@ export const GAMES = [
     genre: 'Science-fiction spatiale',
     description: "L'équipage du vaisseau scientifique Gaïa : plan du vaisseau, cartes, fiches, dés et musique partagés.",
     root: true, // jeu servi par la page racine (#salle)
+    // Identité visuelle du jeu, sur sa vignette seulement (l'accueil reste neutre). Tout est facultatif.
+    theme: {
+      background: 'radial-gradient(circle at 75% 25%, rgba(255, 61, 216, 0.28), transparent 45%), radial-gradient(circle at 20% 80%, rgba(56, 232, 255, 0.22), transparent 50%), #05070f',
+      color: '#38e8ff',
+      font: "'Segoe UI', system-ui, sans-serif",
+      spacing: '0.35em',
+      textCase: 'uppercase',
+      shadow: '0 0 12px rgba(56, 232, 255, 0.8)',
+    },
   },
-  // { id: 'exemple', name: 'Exemple', genre: '…', description: '…', href: './games/exemple/' },
+  // { id: 'exemple', name: 'Exemple', genre: '…', description: '…', href: './games/exemple/',
+  //   theme: { background: '#3b2f2f', color: '#f3e3c3', font: 'Georgia, serif' } },
 ]

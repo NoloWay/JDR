@@ -46,14 +46,23 @@ function showLauncher() {
   document.title = SITE_NAME
   addEventListener('hashchange', onHashChange)
 
-  const grid = el('div', { className: 'launcher-grid' }, ...GAMES.map(gameCard), el('article', { className: 'launcher-card launcher-soon' },
-    el('p', { className: 'launcher-muted', textContent: "D'autres jeux de rôle viendront s'ajouter ici." })))
+  const grid = el('div', { className: 'launcher-grid' }, ...GAMES.map(gameCard),
+    el('div', { className: 'launcher-soon', textContent: "D'autres jeux de rôle viendront s'ajouter ici." }))
 
-  document.body.prepend(el('div', { id: 'launcher' },
+  document.body.prepend(el('div', { id: 'launcher' }, el('div', { className: 'launcher-wrap' },
     el('header', { className: 'launcher-head' },
-      el('div', { className: 'brand', textContent: SITE_NAME.toUpperCase() }),
-      el('p', { className: 'launcher-muted', textContent: 'Choisis le jeu de rôle de la partie.' })),
-    grid))
+      el('h1', { className: 'launcher-title', textContent: SITE_NAME }),
+      el('p', { className: 'launcher-sub', textContent: 'Choisis un jeu, puis crée ou rejoins une partie.' })),
+    grid)))
+}
+
+// Vignette d'un jeu : son identité visuelle (theme de games.js) en variables CSS, lues par launcher.css
+function cover(game) {
+  const t = game.theme || {}
+  const node = el('div', { className: 'launcher-cover' }, el('h2', { textContent: game.name }))
+  const vars = { bg: t.background, fg: t.color, font: t.font, spacing: t.spacing, case: t.textCase, shadow: t.shadow }
+  for (const [k, v] of Object.entries(vars)) if (v) node.style.setProperty(`--cover-${k}`, v)
+  return node
 }
 
 function gameCard(game) {
@@ -79,7 +88,7 @@ function gameCard(game) {
   listSavedRooms(`${game.id}:`).then((rooms) => {
     if (!rooms.length) return
     recent.hidden = false
-    recent.append(el('span', { className: 'launcher-muted', textContent: 'Parties sur ce navigateur :' }),
+    recent.append(el('span', { textContent: 'Parties sur ce navigateur :' }),
       ...rooms.map((room) => {
         const b = el('button', { className: 'small', type: 'button', textContent: room })
         b.addEventListener('click', () => open(room))
@@ -88,11 +97,12 @@ function gameCard(game) {
   })
 
   return el('article', { className: 'launcher-card' },
-    el('h2', { textContent: game.name }),
-    el('div', { className: 'launcher-genre', textContent: game.genre }),
-    el('p', { textContent: game.description }),
-    el('div', { className: 'launcher-actions' }, create, join),
-    recent)
+    cover(game),
+    el('div', { className: 'launcher-body' },
+      el('span', { className: 'launcher-tag', textContent: game.genre }),
+      el('p', { textContent: game.description }),
+      el('div', { className: 'launcher-actions' }, create, join),
+      recent))
 }
 
 // Salles déjà sauvegardées localement (bases IndexedDB « <préfixe><salle> » créées par y-indexeddb)
