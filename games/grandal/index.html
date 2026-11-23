@@ -15,11 +15,9 @@
         <span id="peer-count">Joueurs connectés : 1</span>
       </div>
       <div class="identity">
-        <select id="name-select" title="Qui es-tu ?"></select>
-        <select id="role-select" title="Rôle">
-          <option value="player">Joueur</option>
-          <option value="gm">MJ</option>
-        </select>
+        <select id="name-select" title="Qui es-tu ? (un seul connecté par profil, sauf Observateur)"></select>
+        <!-- Rôle fixe, déduit du profil (games/grandal/presence.js) : pas de menu de choix -->
+        <span id="role-label" class="role-label" title="Rôle lié au profil"></span>
       </div>
       <nav class="view-tabs" id="view-tabs">
         <button data-view="map">Carte</button>

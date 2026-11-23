@@ -15,7 +15,8 @@ import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from '../../src/dice.js'
 import { setupSheets, replaceCharacters } from '../../src/sheets.js'
 import { setupBoard } from '../../src/board.js'
 import { setupMusic } from '../../src/music.js'
-import { PLAYERS, OBSERVER, presetOf, ownerOf, BADGES } from '../../src/rules.js'
+import { ownerOf, BADGES } from '../../src/rules.js'
+import { ROSTER, OBSERVER, ROLE_LABEL, profileOf, roleOf, setupPresence } from './presence.js'
 import { setupParty } from './party.js'
 
 const GAME = 'grandal'
@@ -33,23 +34,27 @@ const store = {
   get: (k) => { try { return localStorage.getItem(`${GAME}:${k}`) } catch { return null } },
   set: (k, v) => { try { localStorage.setItem(`${GAME}:${k}`, v) } catch { /* stockage indisponible */ } },
 }
-// Pseudo : celui de Grandal, sinon celui déjà choisi dans Starboard (même table de joueurs)
+// Profil : celui de Grandal, sinon celui déjà choisi dans Starboard s'il existe dans Grandal.
+// Le rôle n'est pas modifiable : il découle du profil (presence.js : Withex = MJ, Observateur, les autres joueurs).
+// À l'arrivée : si le dernier profil a servi récemment (PROFILE_MEMORY), on le reprend directement (une simple
+// actualisation ne redemande rien) ; sinon, fenêtre de choix obligatoire (plus bas), où il est mis en avant.
+// « Récemment » = depuis la dernière activité : la date est rafraîchie tant que la page reste ouverte.
+const PROFILE_MEMORY = 12 * 60 * 60 * 1000 // 12 h
 const savedName = store.get('name') ?? (() => { try { return localStorage.getItem('starboard:name') } catch { return null } })()
-let playerName = presetOf(savedName)?.name || OBSERVER
-const roleKey = `role:${roomId}`
-let role = store.get(roleKey) || (presetOf(playerName)?.gm ? 'gm' : 'player')
-const me = () => ({ name: playerName, isGM: role === 'gm' })
+const lastProfile = profileOf(savedName)?.name ?? null
+const lastSeen = Number(store.get('nameAt')) || 0
+const resumeProfile = lastProfile && store.get('name') && Date.now() - lastSeen < PROFILE_MEMORY ? lastProfile : null
+let playerName = resumeProfile ?? OBSERVER
+const touchProfile = () => store.set('nameAt', String(Date.now()))
+// Activité : rafraîchie toutes les 5 min, sauf pendant que la fenêtre de choix est ouverte (aucun profil en cours)
+setInterval(() => { if (!$('profile-picker') || $('profile-picker').hidden) touchProfile() }, 5 * 60 * 1000)
+const role = () => roleOf(playerName)
+const me = () => ({ name: playerName, isGM: role() === 'gm', isObserver: role() === 'observer' })
 
 $('room-label').textContent = `Salle : ${roomId}`
-function renderNames() {
-  const opts = PLAYERS.map((p) => [p.name, p.gm ? `${p.name} · MJ` : p.name])
-  $('name-select').replaceChildren(...opts.map(([v, t]) => new Option(t, v, false, v === playerName)))
-}
-renderNames()
-$('role-select').value = role
 
 // ---------- État partagé ----------
-const { doc } = connect(roomId, {
+const { doc, room } = connect(roomId, {
   game: GAME,
   onPeers: (n) => ($('peer-count').textContent = n < 0 ? 'Hors ligne' : `Joueurs connectés : ${n + 1}`),
 })
@@ -108,7 +113,7 @@ function rollCheck(label, target, sides) {
 }
 
 // ---------- Chronique (journal) ----------
-const canSeeEntry = (entry) => !entry.secret || role === 'gm' || entry.who === playerName
+const canSeeEntry = (entry) => !entry.secret || role() === 'gm' || entry.who === playerName
 
 // Couleur d'un auteur : or pour le MJ, badge de son aventurier sinon, parchemin éteint par défaut
 const GM_COLOR = '#d9a441'
@@ -117,7 +122,7 @@ function characterOf(who) {
   return [...doc.getMap('characters').values()].find((c) => ownerOf(c.get('name'), c.get('player')) === who)
 }
 function colorOf(who) {
-  if (presetOf(who)?.gm) return GM_COLOR
+  if (roleOf(who) === 'gm') return GM_COLOR
   const badge = characterOf(who)?.get('badge')
   return READABLE[badge] ?? BADGES.find((b) => b.name === badge)?.color ?? '#a8936f'
 }
@@ -135,7 +140,7 @@ function renderLog() {
     const [subject, action] = r && entry.text.includes(' · ') ? entry.text.split(' · ', 2) : [null, entry.text]
 
     const head = el('div', 'entry-head')
-    head.append(el('b', 'who', presetOf(entry.who)?.gm ? `${entry.who} (MJ)` : entry.who))
+    head.append(el('b', 'who', roleOf(entry.who) === 'gm' ? `${entry.who} (MJ)` : entry.who))
     if (subject && subject !== characterOf(entry.who)?.get('name')) head.append(el('span', 'subject', subject))
     if (entry.secret) head.append(el('span', 'tag', 'secret'))
     head.append(el('time', '', entry.t ? hhmm(entry.t) : ''))
@@ -176,25 +181,138 @@ $('view-tabs').addEventListener('click', (e) => { if (e.target.dataset.view) set
 party = setupParty({ doc, me, sheets, setView })
 setView(store.get('view'))
 
-// ---------- Identité : nom & rôle ----------
-$('name-select').addEventListener('change', (e) => {
-  playerName = e.target.value
-  store.set('name', playerName)
-  setRole(presetOf(playerName).gm ? 'gm' : 'player')
+// ---------- Identité : profil (rôle fixe) et présence ----------
+// Message bref en haut de l'écran (profil refusé, profil perdu)
+function notify(text) {
+  let box = $('toast')
+  if (!box) document.body.append(box = Object.assign(document.createElement('div'), { id: 'toast', className: 'toast' }))
+  box.textContent = text
+  box.hidden = false
+  clearTimeout(notify.timer)
+  notify.timer = setTimeout(() => (box.hidden = true), 7000)
+}
+
+const presence = setupPresence({
+  room,
+  getName: () => playerName,
+  onChange: () => { renderNames(); renderPicker() },
+  // Un autre navigateur avait pris ce profil avant nous : on repasse Observateur et on redemande un profil
+  onLost: (name) => {
+    setName(OBSERVER, { remember: false })
+    openPicker(`« ${name} » est déjà connecté sur un autre navigateur. Choisis un autre profil.`)
+  },
 })
-$('role-select').addEventListener('change', (e) => setRole(e.target.value))
-function setRole(r) {
-  role = r
-  $('role-select').value = r
-  store.set(roleKey, role)
-  document.body.classList.toggle('is-gm', role === 'gm')
+
+// ---------- Choix du profil obligatoire à l'arrivée ----------
+// Fenêtre bloquante (le reste de la page est inerte) : impossible de jouer avant d'avoir choisi.
+// Les profils déjà connectés ailleurs sont grisés et se mettent à jour en direct.
+let pickerMessage = ''
+function openPicker(message = '') {
+  pickerMessage = message
+  let box = $('profile-picker')
+  if (!box) {
+    box = Object.assign(document.createElement('div'), { id: 'profile-picker', className: 'profile-picker' })
+    box.setAttribute('role', 'dialog')
+    box.setAttribute('aria-modal', 'true')
+    box.setAttribute('aria-labelledby', 'profile-picker-title')
+    document.body.append(box)
+  }
+  box.hidden = false
+  for (const el of document.querySelectorAll('body > header, body > main')) el.inert = true
+  renderPicker()
+  // Focus sur le dernier profil s'il est libre (Entrée suffit pour le reprendre), sinon sur le premier libre
+  ;(box.querySelector('.picker-profile.last:not(:disabled)') ?? box.querySelector('button:not(:disabled)'))?.focus()
+}
+function closePicker() {
+  $('profile-picker').hidden = true
+  for (const el of document.querySelectorAll('body > header, body > main')) el.inert = false
+}
+function renderPicker() {
+  const box = $('profile-picker')
+  if (!box || box.hidden) return
+  const focused = document.activeElement?.dataset?.profile
+  const panel = Object.assign(document.createElement('div'), { className: 'picker-panel' })
+  panel.append(
+    Object.assign(document.createElement('h1'), { id: 'profile-picker-title', textContent: 'Qui es-tu ?' }),
+    Object.assign(document.createElement('p'), { className: 'picker-hint', textContent: 'Choisis ton profil pour rejoindre la partie.' }),
+  )
+  if (pickerMessage) panel.append(Object.assign(document.createElement('p'), { className: 'picker-warning', textContent: pickerMessage }))
+  const grid = Object.assign(document.createElement('div'), { className: 'picker-grid' })
+  for (const p of ROSTER) {
+    const taken = presence.takenBy(p.name)
+    const b = Object.assign(document.createElement('button'), {
+      type: 'button',
+      className: `picker-profile${p.name === lastProfile ? ' last' : ''}${p.name === OBSERVER ? ' observer' : ''}`,
+      disabled: taken,
+      title: taken ? 'Déjà connecté sur un autre navigateur' : p.name === lastProfile ? 'Ton dernier profil' : '',
+    })
+    b.dataset.profile = p.name
+    b.append(Object.assign(document.createElement('span'), { className: 'picker-name', textContent: p.name }))
+    if (taken) b.append(Object.assign(document.createElement('span'), { className: 'picker-note', textContent: 'connecté' }))
+    else if (p.name === lastProfile) b.append(Object.assign(document.createElement('span'), { className: 'picker-note', textContent: 'dernier profil' }))
+    b.addEventListener('click', () => {
+      if (presence.takenBy(p.name)) return renderPicker()
+      setName(p.name)
+      closePicker()
+    })
+    grid.append(b)
+  }
+  panel.append(grid)
+  box.replaceChildren(panel)
+  if (focused) box.querySelector(`[data-profile="${focused}"]:not(:disabled)`)?.focus()
+}
+
+function renderNames() {
+  $('name-select').replaceChildren(...ROSTER.map((p) => {
+    const taken = p.name !== playerName && presence.takenBy(p.name)
+    const opt = new Option(`${p.name}${taken ? ' · connecté' : ''}`, p.name, false, p.name === playerName)
+    opt.disabled = taken
+    return opt
+  }))
+}
+
+function applyRole() {
+  document.body.classList.toggle('is-gm', role() === 'gm')
+  document.body.classList.toggle('is-observer', role() === 'observer')
+  $('role-label').textContent = ROLE_LABEL[role()]
+  $('role-label').dataset.role = role()
+}
+
+// remember = false : profil imposé (perdu dans un conflit), pas retenu comme « dernier profil »
+function setName(name, { remember = true } = {}) {
+  playerName = name
+  if (remember) {
+    store.set('name', playerName)
+    touchProfile()
+  }
+  presence.claim()
+  renderNames()
+  applyRole()
   renderLog()
   sheets.rerender()
   party.rerender()
   board.rerender()
   music.rerender()
 }
-document.body.classList.toggle('is-gm', role === 'gm')
+
+$('name-select').addEventListener('change', (e) => {
+  const name = e.target.value
+  if (presence.takenBy(name)) {
+    renderNames()
+    return notify(`« ${name} » est déjà connecté sur un autre navigateur.`)
+  }
+  setName(name)
+})
+renderNames()
+applyRole()
+// Dernier profil récent : repris d'office (s'il est déjà pris ailleurs, la présence le signalera dans
+// quelques secondes et la fenêtre de choix s'ouvrira avec un avertissement). Sinon : choix obligatoire.
+if (resumeProfile) {
+  presence.claim()
+  touchProfile()
+} else {
+  openPicker()
+}
 
 // ---------- Export / import JSON ----------
 // Mêmes collections que Starboard, sans celles du vaisseau ni des dossiers
@@ -221,7 +339,7 @@ $('file-import').addEventListener('change', async (e) => {
   const file = e.target.files[0]
   e.target.value = ''
   if (!file) return
-  if (role !== 'gm') return
+  if (role() !== 'gm') return
   let data
   try {
     data = JSON.parse(await file.text())

@@ -42,6 +42,65 @@ body {
 }
 .brand:hover { color: #f0c46a; }
 
+/* Rôle fixe affiché à côté du profil (pas de menu) */
+.identity { display: flex; align-items: center; gap: 8px; }
+.role-label {
+  padding: 2px 10px;
+  font-family: var(--display); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 3px;
+}
+.role-label[data-role='gm'] { color: #1a120a; background: var(--accent); border-color: var(--accent); }
+.role-label[data-role='player'] { color: var(--text); }
+
+/* Message bref (profil déjà connecté) */
+.toast {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 50;
+  max-width: 560px; padding: 10px 18px;
+  color: var(--text); background: #2a1e13;
+  border: 1px solid var(--accent-2); border-radius: 4px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- Choix du profil à l'arrivée (fenêtre bloquante) ---------- */
+.profile-picker {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(21, 16, 11, 0.82), rgba(8, 6, 4, 0.94));
+  backdrop-filter: blur(3px);
+}
+.picker-panel {
+  width: min(560px, 100%);
+  padding: 28px 32px 30px;
+  text-align: center;
+  background:
+    radial-gradient(800px 200px at 50% 0, rgba(217, 164, 65, 0.12), transparent 70%),
+    linear-gradient(180deg, #2a1e13, #1d150d);
+  border: 1px solid rgba(217, 164, 65, 0.45);
+  border-radius: 6px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.picker-panel h1 {
+  margin: 0;
+  font-family: var(--display); font-weight: 700; font-size: 1.7rem; letter-spacing: 0.12em;
+  color: var(--accent); text-shadow: 0 2px 0 #000, 0 0 14px rgba(217, 164, 65, 0.35);
+}
+.picker-hint { margin: 6px 0 18px; color: var(--muted); }
+.picker-warning { margin: -8px 0 16px; padding: 8px 12px; color: var(--text); border: 1px solid var(--accent-2); border-radius: 3px; background: rgba(181, 71, 58, 0.15); }
+.picker-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.picker-profile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 56px; padding: 8px 12px;
+  color: var(--text); background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line); border-radius: 4px;
+}
+.picker-profile:hover:not(:disabled), .picker-profile:focus-visible { color: var(--accent); border-color: var(--accent); background: rgba(217, 164, 65, 0.1); outline: none; }
+.picker-profile.last { border-color: rgba(217, 164, 65, 0.6); }
+.picker-profile.observer { grid-column: 1 / -1; min-height: 44px; }
+.picker-profile:disabled { opacity: 0.4; cursor: not-allowed; }
+.picker-name { font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spacing: 0.06em; }
+.picker-note { font-size: 0.75rem; color: var(--muted); font-style: italic; }
+
 /* Onglets Carte / Fiches */
 .view-tabs button { font-family: var(--display); font-weight: 600; letter-spacing: 0.14em; }
 .view-tabs button.on { text-shadow: 0 0 8px rgba(217, 164, 65, 0.5); }
