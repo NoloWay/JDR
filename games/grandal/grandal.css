@@ -290,15 +290,93 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
     linear-gradient(180deg, #261c12 0%, #1c140c 100%);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(217, 164, 65, 0.06) inset;
 }
-/* Pas de « Dossier du personnel » dans Grandal : on masque sa case sur la fiche (module partagé avec Starboard) */
-.sheet label.check[title*='dossier du personnel'] { display: none; }
-.dossier-head { background: linear-gradient(180deg, #261c12 70%, rgba(38, 28, 18, 0.92)); }
-.sheet h1, .sheet h2, .sheet h3 { font-family: var(--display); letter-spacing: 0.06em; }
-.stat-tile { background: rgba(217, 164, 65, 0.04); }
-button.stat-tile:hover { background: rgba(217, 164, 65, 0.1); box-shadow: 0 0 12px rgba(217, 164, 65, 0.18); }
-.skill:hover { background: rgba(217, 164, 65, 0.06); }
-.score { border-color: rgba(217, 164, 65, 0.4); }
-.pip.on { box-shadow: 0 0 5px rgba(217, 164, 65, 0.6); }
+.sheet { padding: 0 28px 28px; }
+
+/* En-tête : portrait, identité, niveaux, actions */
+.gs-head {
+  position: sticky; top: 0; z-index: 2;
+  display: grid; grid-template-columns: 132px 1fr auto; gap: 20px; align-items: start;
+  margin: 0 -28px; padding: 20px 28px 18px;
+  background: linear-gradient(180deg, #261c12 75%, rgba(38, 28, 18, 0.94));
+  border-bottom: 1px solid var(--line);
+}
+.gs-portrait {
+  position: relative;
+  width: 132px; aspect-ratio: 1;
+  display: grid; place-items: center;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(217, 164, 65, 0.5); border-radius: 4px;
+  box-shadow: inset 0 0 0 3px #1c140c, inset 0 0 0 4px rgba(217, 164, 65, 0.25);
+}
+.gs-portrait img { width: 100%; height: 100%; object-fit: cover; }
+.gs-portrait-mark { font-size: 2.6rem; color: rgba(163, 144, 109, 0.25); }
+.gs-portrait-tools { position: absolute; inset: auto 0 0 0; display: flex; justify-content: center; gap: 4px; padding: 4px; background: rgba(21, 16, 11, 0.85); }
+
+.gs-identity { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gs-name { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.6rem; letter-spacing: 0.06em; color: var(--accent); overflow-wrap: anywhere; }
+.gs-name-input { font-family: var(--display); font-size: 1.3rem; width: 100%; max-width: 460px; }
+.gs-meta { color: var(--muted); }
+.gs-fields { display: flex; flex-wrap: wrap; gap: 8px; }
+.gs-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.75rem; color: var(--muted); }
+.gs-field input, .gs-field select { font-size: 0.95rem; }
+.gs-fields .gs-field input { width: 130px; }
+.gs-levels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 14px; margin-top: 4px; }
+.gs-lv {
+  padding: 1px 10px;
+  font-family: var(--display); font-weight: 700; letter-spacing: 0.08em;
+  color: #1a120a; background: var(--accent); border-radius: 3px;
+}
+.gs-classes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.gs-classes b { font-family: var(--display); font-size: 0.85rem; color: var(--accent); }
+.gs-class-edit { display: flex; align-items: center; gap: 6px; }
+.gs-class-edit input:not(.num) { width: 150px; }
+.gs-class-edit input.num { width: 56px; }
+.gs-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
+
+/* Outils du MJ (joueur, visibilité, suppression) */
+.gs-gm {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
+  margin-top: 14px; padding: 10px 14px;
+  background: rgba(181, 71, 58, 0.08); border: 1px dashed rgba(181, 71, 58, 0.45); border-radius: 4px;
+}
+.gs-gm .danger { margin-left: auto; }
+
+/* Corps : caractéristiques à gauche, effets passifs à droite */
+.gs-body { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 28px; align-items: start; margin-top: 18px; }
+.gs-sec-title {
+  margin: 0 0 10px; padding-bottom: 6px;
+  font-family: var(--display); font-weight: 600; font-size: 0.95rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); border-bottom: 1px solid var(--line);
+}
+
+/* Tableau des caractéristiques : 9 lignes (3, un espace, puis 6), 3 colonnes */
+.gs-stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.gs-stats th, .gs-stats td { padding: 5px 10px; border-bottom: 1px solid rgba(74, 56, 36, 0.55); }
+.gs-stats th { text-align: left; font-weight: 500; }
+.gs-stats td { text-align: center; width: 70px; }
+.gs-stats .gs-value { font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
+.gs-stats .gs-mod { color: var(--muted); }
+.gs-stats .gs-mod.pos { color: var(--ok); }
+.gs-stats .gs-mod.neg { color: var(--danger); }
+/* Espace entre les 3 premières lignes et les 6 autres (ligne vide décorative, hors des 9 lignes) */
+.gs-stats tr.gs-gap td { height: 12px; padding: 0; border: none; }
+.gs-stats tr.gs-group-end + .gs-gap + tr > * { border-top: 1px solid rgba(74, 56, 36, 0.55); }
+.gs-stats td input.num { width: 64px; text-align: center; }
+
+/* Effets passifs : 4 groupes */
+.gs-effects { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.gs-effect-group { padding: 10px 12px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--line); border-radius: 4px; }
+.gs-effect-group h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.1em; color: var(--muted); }
+.gs-effect-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.gs-effect-group li p { margin: 2px 0 0; color: var(--muted); font-size: 0.88rem; white-space: pre-wrap; }
+.gs-effect-group > p { margin: 0; font-size: 0.85rem; }
+.gs-effect-edit { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin-bottom: 8px; }
+.gs-effect-edit textarea { grid-column: 1 / -1; resize: vertical; }
+
+@media (max-width: 1100px) {
+  .gs-body { grid-template-columns: 1fr; }
+}
 
 /* ---------- Chronique (journal) et musique ---------- */
 .log { background: var(--panel); }

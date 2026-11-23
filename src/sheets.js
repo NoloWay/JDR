@@ -3,7 +3,7 @@ import { h, liveRender, pips } from './dom.js'
 import { folderList, memberKey, setMember } from './folders.js'
 import {
   STATS, STAT_POINTS, STAT_MAX, LEVELS, SKILLS, SKILL_GROUPS, BADGES,
-  BASE_SKILL_LEVELS, FREE_SKILL_LEVELS, statValue, skillValue, skillStatsLabel, ownerOf as defaultOwnerOf, presetOf,
+  BASE_SKILL_LEVELS, FREE_SKILL_LEVELS, statValue, skillValue, skillStatsLabel, ownerOf, presetOf,
 } from './rules.js'
 
 // Champs texte d'une fiche : [clé, libellé, type]
@@ -69,12 +69,7 @@ const signed = (n) => (n > 0 ? `+${n}` : `${n}`)
 /**
  * Liste de l'équipage (barre latérale) + dossier du personnage.
  * Le dossier s'affiche en consultation ; « Modifier » fait apparaître les champs.
- * ctx : { doc, me() -> { name, isGM }, onRoll(label, target, sides), onOpen(), allPC? }
- * allPC (facultatif, Grandal) : toutes les fiches sont des personnages joueurs, sans mention « PJ / PNJ ».
- * ownerOf(nom, joueur) (facultatif, Grandal) : règle du propriétaire d'une fiche, à la place de celle de rules.js.
- * playerChoices() (facultatif, Grandal) : profils joueurs possibles ; le champ « Joueur » devient une liste réservée
- * au MJ, et seuls le MJ et le propriétaire peuvent modifier la fiche.
- * Options absentes (Starboard) : comportement d'origine.
+ * ctx : { doc, me() -> { name, isGM }, onRoll(label, target, sides), onOpen() }
  */
 export function setupSheets(ctx) {
   const characters = ctx.doc.getMap('characters')
@@ -83,16 +78,12 @@ export function setupSheets(ctx) {
   let openId = null
   let editing = false
 
-  // Propriétaire d'une fiche : règle de rules.js (Starboard), ou celle du jeu (ctx.ownerOf, Grandal)
-  const ownerOf = ctx.ownerOf ?? defaultOwnerOf
   // Personnage du joueur connecté : sa fiche lui reste visible même cachée par le MJ
   const isMine = (c) => ownerOf(c.get('name'), c.get('player')).toLowerCase() === ctx.me().name.toLowerCase()
   const canSee = (c) => ctx.me().isGM || !c.get('hidden') || isMine(c)
   const canEdit = (c) => {
     const { name, isGM } = ctx.me()
     const owner = ownerOf(c.get('name'), c.get('player'))
-    // ctx.playerChoices (Grandal) : seuls le MJ et le propriétaire modifient (une fiche sans joueur : le MJ seul)
-    if (ctx.playerChoices) return isGM || (!!owner && owner.toLowerCase() === name.toLowerCase())
     return isGM || !owner || owner.toLowerCase() === name.toLowerCase()
   }
 
@@ -194,23 +185,14 @@ export function setupSheets(ctx) {
         ed
           ? h('select', { onchange: set('badge') }, BADGES.map((b) => h('option', { value: b.name, selected: b.name === data.badge }, `Badge ${b.name}`)))
           : h('span', { class: 'badge-chip' }, h('i'), `Badge ${data.badge}`),
-        !ed && data.player && h('span', { class: 'tag' }, ctx.allPC ? `Joueur · ${data.player}` : `PJ · ${data.player}`),
+        !ed && data.player && h('span', { class: 'tag' }, `PJ · ${data.player}`),
         !ed && isGM && data.hidden && h('span', { class: 'tag' }, 'Cachée'),
         mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; render() } }, ed ? 'Terminer' : 'Modifier'),
         h('button', { class: 'icon', title: 'Fermer', onclick: close }, '×')))
 
     // ---- Identité (édition) ----
     const identity = ed && h('div', { class: 'edit-grid' },
-      field('post', 'Poste'), field('age', 'Âge'), field('country', "Pays d'origine"),
-      // ctx.playerChoices (Grandal) : « Joueur » = un profil joueur existant, choisi par le MJ seul ; sinon texte libre
-      ctx.playerChoices
-        ? h('label', { class: 'field' }, h('span', {}, 'Joueur'),
-          isGM
-            ? h('select', { onchange: set('player') },
-              h('option', { value: '', selected: !data.player }, '— Aucun —'),
-              ctx.playerChoices().map((n) => h('option', { value: n, selected: n === data.player }, n)))
-            : h('input', { value: data.player || '— Aucun —', disabled: true, title: 'Seul le MJ choisit le joueur d’une fiche' }))
-        : field('player', ctx.allPC ? 'Joueur' : 'Joueur (vide = PNJ)'),
+      field('post', 'Poste'), field('age', 'Âge'), field('country', "Pays d'origine"), field('player', 'Joueur (vide = PNJ)'),
       isGM && h('div', { class: 'edit-gm' },
         h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: data.hidden, onchange: (e) => c.set('hidden', e.target.checked) }), 'Cachée aux joueurs'),
@@ -295,7 +277,7 @@ export function setupSheets(ctx) {
 
     sheetEl.append(...[
       head,
-      !mayEdit && h('p', { class: 'readonly-note' }, data.player ? `Lecture seule : fiche de ${data.player}` : 'Lecture seule'),
+      !mayEdit && h('p', { class: 'readonly-note' }, `Lecture seule : fiche de ${data.player}`),
       identity,
       section('Caractéristiques innées', `${statsTotal} / ${STAT_POINTS} points`,
         h('div', { class: 'stat-groups' }, ['Physique', 'Mentale'].map((g) => h('div', { class: 'stat-group' },

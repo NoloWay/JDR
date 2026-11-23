@@ -12,7 +12,7 @@ import '../../src/style.css'
 import './grandal.css'
 import { connect } from '../../src/net.js'
 import { roll, rollFree, OUTCOME_LABEL, MODE_LABEL } from '../../src/dice.js'
-import { setupSheets, replaceCharacters } from '../../src/sheets.js'
+import { setupGrandalSheets, replaceCharacters, toBase64, fromBase64 } from './sheet.js'
 import { setupBoard } from '../../src/board.js'
 import { setupMusic } from '../../src/music.js'
 import { BADGES } from '../../src/rules.js'
@@ -112,6 +112,8 @@ function rollPlain(sides) {
 $('btn-d6').addEventListener('click', () => rollPlain(6))
 $('btn-d20').addEventListener('click', () => rollPlain(20))
 $('btn-d100').addEventListener('click', () => rollPlain(100))
+// Jet contre une valeur : pas encore branché sur la fiche de Grandal (règles des jets à définir)
+// eslint-disable-next-line no-unused-vars
 function rollCheck(label, target, sides) {
   const r = roll(sides, target, rollMode)
   pushLog({ text: label, roll: { sides, target, mode: r.mode, values: r.values, kept: r.kept, outcome: r.outcome } })
@@ -171,11 +173,10 @@ log.observe(renderLog)
 doc.getMap('characters').observeDeep(renderLog)
 
 // ---------- Fiches des aventuriers ----------
-// Pas de PJ / PNJ (allPC) ; « Joueur » = un profil joueur existant, choisi par le MJ (playerChoices) ;
-// modification : MJ et propriétaire ; suppression (déjà réservée au MJ par sheets.js) et création : MJ seul
-const sheets = setupSheets({ doc, me, onRoll: rollCheck, onOpen: () => {}, allPC: true, ownerOf: ownerOfSheet, playerChoices: () => profiles.players() })
-// « + Fiche » : bouton masqué aux non-MJ (classe gm-only) ; on bloque aussi le clic, avant le gestionnaire de sheets.js
-$('btn-new-sheet').addEventListener('click', (e) => { if (!me().isGM) e.stopImmediatePropagation() }, { capture: true })
+// Fiche propre à Grandal (games/grandal/sheet.js) : « Joueur » = un profil joueur existant, choisi par le MJ ;
+// modification : MJ et propriétaire ; création (« + Fiche », bouton gm-only) et suppression : MJ seul
+const sheets = setupGrandalSheets({ doc, me, ownerOf: ownerOfSheet, playerChoices: () => profiles.players() })
+$('btn-new-sheet').addEventListener('click', () => sheets.create())
 
 // ---------- Onglets Carte / Fiches (choix local, mémorisé) et vignettes des aventuriers ----------
 let party = null
@@ -364,6 +365,8 @@ $('btn-export').addEventListener('click', () => {
     tokens: tokens.toJSON(),
     log: log.toJSON(),
     characters: doc.getMap('characters').toJSON(),
+    // Images des personnages, encodées en base64
+    portraits: Object.fromEntries([...doc.getMap('portraits').entries()].map(([id, p]) => [id, { type: p.type, base64: toBase64(p.data) }])),
     ...Object.fromEntries(COLLECTIONS.map((k) => [k, doc.getMap(k).toJSON()])),
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -386,8 +389,8 @@ $('file-import').addEventListener('change', async (e) => {
     alert('Fichier JSON illisible.')
     return
   }
-  const parts = ['scenes', 'tokens', 'log', 'characters', ...COLLECTIONS].filter((k) => data[k] && Object.keys(data[k]).length)
-  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'PV et mana', playerProfiles: 'profils des joueurs' }
+  const parts = ['scenes', 'tokens', 'log', 'characters', 'portraits', ...COLLECTIONS].filter((k) => data[k] && Object.keys(data[k]).length)
+  const names = { scenes: 'cartes et décors', tokens: 'pions', log: 'chronique', characters: 'fiches', portraits: 'images des personnages', musicTracks: 'pistes de musique', musicPlaylists: 'playlists', mapPlan: 'dessins des cartes', templates: 'gabarits', drawings: 'traits de crayon', fog: 'brouillard de guerre', mapLibrary: 'modèles de carte', partySlots: 'vignettes des aventuriers', status: 'PV et mana', playerProfiles: 'profils des joueurs' }
   if (!parts.length) return alert('Aucune donnée de partie dans ce fichier.')
   if (!confirm(`Remplacer pour tout le monde : ${parts.map((k) => names[k]).join(', ')} ?`)) return
   if (parts.includes('scenes')) board.importData(data)
@@ -402,6 +405,13 @@ $('file-import').addEventListener('change', async (e) => {
     }
   })
   if (parts.includes('characters')) replaceCharacters(doc, data.characters)
+  if (parts.includes('portraits')) {
+    const portraits = doc.getMap('portraits')
+    doc.transact(() => {
+      portraits.clear()
+      for (const [id, p] of Object.entries(data.portraits)) if (p?.base64) portraits.set(id, { type: p.type, data: fromBase64(p.base64) })
+    })
+  }
   for (const k of COLLECTIONS.filter((p) => parts.includes(p))) {
     const map = doc.getMap(k)
     doc.transact(() => { map.clear(); Object.entries(data[k]).forEach(([id, v]) => map.set(id, v)) })
