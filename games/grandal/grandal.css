@@ -429,3 +429,19 @@ select, input, textarea { background: #1a130c; font-family: var(--serif); }
 .log { background: var(--panel); }
 .log li.entry.secret { background: rgba(163, 144, 109, 0.08); }
 .music-player { border-radius: 3px; }
+
+/* Compétences : une liste par catégorie (nom · niveau d'apprentissage · bonus) */
+.gs-skills-sec { margin-top: 18px; }
+.gs-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.gs-skill-group { padding: 10px 12px; background: rgba(0, 0, 0, 0.16); border: 1px solid var(--line); border-radius: 4px; }
+.gs-skill-group h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.1em; color: var(--muted); }
+.gs-skill-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.gs-skill-group > p { margin: 0; font-size: 0.85rem; }
+.gs-skill { display: grid; grid-template-columns: 1fr auto 2.4em; gap: 8px; align-items: baseline; }
+.gs-skill-level { color: var(--muted); font-size: 0.85rem; }
+.gs-skill-level.lv-connaissance, .gs-skill-bonus.lv-connaissance { color: #e0c45a; }
+.gs-skill-level.lv-expertise, .gs-skill-bonus.lv-expertise { color: #7cc47a; }
+.gs-skill-level.lv-maitrise, .gs-skill-bonus.lv-maitrise { color: #6aa8e8; }
+.gs-skill-bonus { color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
+.gs-skill-edit { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px; align-items: center; margin-bottom: 6px; }
+.gs-skill-edit input { min-width: 0; }

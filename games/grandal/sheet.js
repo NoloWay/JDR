@@ -7,6 +7,8 @@
 //   effects:race | effects:classes | effects:equipment | effects:unique   effets passifs, [{ name, desc }]
 //   stat:<clé>                       { value } pour chaque caractéristique (STATS) ; modificateur calculé (modifier),
 //                                    jamais stocké (un ancien champ mod est ignoré)
+//   skills:<catégorie>               [{ name, level }] compétences (SKILL_CATEGORIES), level = connaissance | expertise | maitrise ;
+//                                    le bonus (+1 / +2 / +3) se déduit du niveau, jamais stocké
 //   player                           joueur propriétaire (profil joueur, choisi par le MJ)
 // Les listes et les caractéristiques sont des valeurs simples (remplacées en entier à chaque modification) :
 // export / import directs ; une caractéristique par clé pour que deux personnes n'écrasent pas leurs modifications.
@@ -35,6 +37,21 @@ export const EFFECTS = [
   { key: 'equipment', label: 'Équipement' },
   { key: 'unique', label: 'Uniques' },
 ]
+// Compétences : catégories dans l'ordre, niveaux d'apprentissage et bonus associé (jamais stocké : déduit du niveau)
+export const SKILL_CATEGORIES = [
+  { key: 'domaines', label: 'Domaines' },
+  { key: 'langages', label: 'Langages' },
+  { key: 'armes', label: 'Armes' },
+  { key: 'armures', label: 'Armures' },
+  { key: 'instruments', label: 'Instruments' },
+  { key: 'recettes', label: 'Recettes' },
+]
+export const SKILL_LEVELS = [
+  { key: 'connaissance', label: 'Connaissance', bonus: 1 },
+  { key: 'expertise', label: 'Expertise', bonus: 2 },
+  { key: 'maitrise', label: 'Maîtrise', bonus: 3 },
+]
+const skillLevel = (key) => SKILL_LEVELS.find((l) => l.key === key) ?? SKILL_LEVELS[0]
 const PORTRAIT_SIZE = 512
 
 // Silhouette de d20 (icosaèdre vu de face : contour hexagonal, triangle central, arêtes), au trait,
@@ -261,10 +278,39 @@ export function setupGrandalSheets(ctx) {
         ? [row(s, i), h('tr', { class: 'gs-gap', 'aria-hidden': 'true' }, h('td', { colSpan: showRoll ? 4 : 3 }))]
         : [row(s, i)])))))
 
+    // ---- Compétences : une liste par catégorie, chaque entrée = nom · niveau d'apprentissage · bonus ----
+    const skills = h('section', { class: 'gs-sec gs-skills-sec' }, h('h3', { class: 'gs-sec-title' }, 'Compétences'),
+      h('div', { class: 'gs-skills' }, SKILL_CATEGORIES.map(({ key, label }) => {
+        const k = `skills:${key}`
+        const list = get(k, [])
+        const setList = (l) => c.set(k, l)
+        const patch = (i, p) => setList(list.map((x, j) => (j === i ? { ...x, ...p } : x)))
+        const shown = list.filter((sk) => (sk.name ?? '').trim())
+        return h('div', { class: 'gs-skill-group' }, h('h4', {}, label),
+          ed
+            ? [...list.map((sk, i) => h('div', { class: 'gs-skill-edit' },
+              h('input', { value: sk.name ?? '', placeholder: 'Nom', 'aria-label': `Nom de la compétence (${label})`, onchange: (e) => patch(i, { name: e.target.value }) }),
+              h('select', { 'aria-label': 'Niveau d’apprentissage', onchange: (e) => patch(i, { level: e.target.value }) },
+                SKILL_LEVELS.map((l) => h('option', { value: l.key, selected: l.key === skillLevel(sk.level).key }, l.label))),
+              h('span', { class: 'gs-skill-bonus' }, `+${skillLevel(sk.level).bonus}`),
+              h('button', { class: 'icon', title: 'Retirer la compétence', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'))),
+            h('button', { class: 'small', onclick: () => setList([...list, { name: '', level: 'connaissance' }]) }, '+ Compétence')]
+            : shown.length
+              ? h('ul', {}, shown.map((sk) => {
+                const l = skillLevel(sk.level)
+                return h('li', { class: 'gs-skill' },
+                  h('span', { class: 'gs-skill-name' }, sk.name),
+                  h('span', { class: `gs-skill-level lv-${l.key}` }, l.label),
+                  h('b', { class: `gs-skill-bonus lv-${l.key}` }, `+${l.bonus}`))
+              }))
+              : h('p', { class: 'muted' }, 'Aucune'))
+      })))
+
     sheetEl.append(...[
       h('header', { class: 'gs-head' }, portrait, identity, actions),
       gmTools,
       h('div', { class: 'gs-body' }, statsTable, effects),
+      skills,
       !mayEdit && h('p', { class: 'readonly-note' }, owner ? `Lecture seule : fiche de ${owner}` : 'Lecture seule'),
     ].filter(Boolean))
 
