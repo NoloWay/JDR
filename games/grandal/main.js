@@ -163,14 +163,19 @@ $('btn-new-sheet').addEventListener('click', () => sheets.create())
 
 // ---------- Onglets Carte / Fiches (choix local, mémorisé) et vignettes des aventuriers ----------
 let party = null
+let currentView = 'map'
 function setView(v) {
-  const view = v === 'roster' ? 'roster' : 'map'
+  // « Paramètres » : MJ seul (un autre profil retombe sur la Carte)
+  const allowed = v === 'settings' && role() !== 'gm' ? 'map' : v
+  const view = allowed === 'roster' || allowed === 'settings' ? allowed : 'map'
+  currentView = view
   // Une fiche ouverte recouvre les deux onglets : changer d'onglet la referme pour montrer l'onglet choisi
   // (sauf si elle est détachée dans sa propre fenêtre)
   sheets.closeDocked()
   if (view !== 'roster') party?.leaveRoster()
   $('roster').hidden = view !== 'roster'
-  store.set('view', view)
+  $('settings').hidden = view !== 'settings'
+  if (allowed === v) store.set('view', view)
   $('view-tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.view === view))
 }
 $('view-tabs').addEventListener('click', (e) => { if (e.target.dataset.view) setView(e.target.dataset.view) })
@@ -269,6 +274,7 @@ function renderNames() {
 
 function applyRole() {
   document.body.classList.toggle('is-gm', role() === 'gm')
+  if (currentView === 'settings' && role() !== 'gm') setView('map') // on n'est plus MJ : l'onglet Paramètres se ferme
   document.body.classList.toggle('is-observer', role() === 'observer')
   $('role-label').textContent = ROLE_LABEL[role()]
   $('role-label').dataset.role = role()

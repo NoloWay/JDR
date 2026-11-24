@@ -22,6 +22,7 @@
       <nav class="view-tabs" id="view-tabs">
         <button data-view="map">Carte</button>
         <button data-view="roster">Fiches</button>
+        <button data-view="settings" class="gm-only">Paramètres</button>
       </nav>
       <div class="tools">
         <div class="seg" id="roll-mode" title="Mode des jets">
@@ -64,10 +65,15 @@
             <h2>Fiches des aventuriers</h2>
             <button id="btn-new-sheet" class="gm-only" title="Créer une fiche (MJ)">+ Fiche</button>
           </header>
-          <!-- MJ : profils des joueurs (ajout / suppression), games/grandal/party.js -->
-          <section id="profiles-admin" class="profiles-admin gm-only"></section>
           <div id="roster-pick" class="roster-pick" hidden></div>
           <div id="roster-grid" class="roster-grid"></div>
+        </section>
+        <!-- Onglet Paramètres (MJ seul) : profils des joueurs (ajout / suppression), games/grandal/party.js -->
+        <section id="settings" class="roster settings gm-only" hidden>
+          <header class="roster-head">
+            <h2>Paramètres</h2>
+          </header>
+          <section id="profiles-admin" class="profiles-admin"></section>
         </section>
         <section id="sheet" class="sheet" hidden></section>
       </div>
