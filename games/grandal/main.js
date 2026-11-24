@@ -166,7 +166,8 @@ let party = null
 function setView(v) {
   const view = v === 'roster' ? 'roster' : 'map'
   // Une fiche ouverte recouvre les deux onglets : changer d'onglet la referme pour montrer l'onglet choisi
-  sheets.close()
+  // (sauf si elle est détachée dans sa propre fenêtre)
+  sheets.closeDocked()
   if (view !== 'roster') party?.leaveRoster()
   $('roster').hidden = view !== 'roster'
   store.set('view', view)

@@ -139,7 +139,44 @@ export function setupGrandalSheets(ctx) {
     return urls.get(id).url
   }
 
+  // ---- Fiche détachée : la fiche peut vivre dans une fenêtre séparée (déplaçable sur un autre écran) ----
+  // C'est le même élément (#sheet) qui change de document : tout (rendu, données, boutons) continue de fonctionner tel quel.
+  const homeParent = sheetEl.parentElement
+  const homeNext = sheetEl.nextSibling
+  let popup = null
+  const detached = () => !!popup && !popup.closed
+  /** Remet l'élément de la fiche sur le plateau et ferme la fenêtre détachée (sans fermer la fiche) */
+  function dock() {
+    const w = popup
+    popup = null
+    homeParent.insertBefore(sheetEl, homeNext)
+    if (w && !w.closed) w.close()
+  }
+  function detach() {
+    if (detached()) { popup.focus(); return }
+    const w = window.open('', 'grandal-fiche', 'popup=yes,width=1000,height=860,left=60,top=40')
+    if (!w) { alert('Le navigateur a bloqué la fenêtre. Autorise les fenêtres surgissantes pour ce site, puis réessaie.'); return }
+    w.document.open()
+    w.document.write('<!doctype html><html lang="fr" class="sheet-detached"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Fiche — Grandal</title></head><body></body></html>')
+    w.document.close()
+    // Mêmes feuilles de style que la page (liens et styles en ligne)
+    for (const node of document.querySelectorAll('link[rel="stylesheet"], style')) {
+      if (node.tagName === 'LINK') w.document.head.append(Object.assign(w.document.createElement('link'), { rel: 'stylesheet', href: node.href }))
+      else w.document.head.append(w.document.importNode(node, true))
+    }
+    w.document.body.append(sheetEl)
+    popup = w
+    w.addEventListener('pointerup', released, true)
+    w.addEventListener('pointercancel', released, true)
+    w.addEventListener('pagehide', () => { if (popup === w) { dock(); sheetEl.hidden = !openId; if (openId) render() } }) // fenêtre fermée par l'utilisateur : la fiche revient sur le plateau
+    render()
+    w.focus()
+  }
+  setInterval(() => { if (popup && popup.closed) { dock(); sheetEl.hidden = !openId; if (openId) render() } }, 1000) // filet de sécurité
+  addEventListener('pagehide', () => { if (detached()) popup.close() }) // la page principale se ferme : la fenêtre aussi
+
   function close() {
+    if (popup) dock()
     openId = null
     editing = false
     confirmingDelete = false
@@ -153,6 +190,7 @@ export function setupGrandalSheets(ctx) {
     openId = id
     sheetEl.hidden = false
     render()
+    if (detached()) popup.focus() // la fiche détachée affiche la dernière fiche ouverte
   }
   function create() {
     if (!ctx.me().isGM) return
@@ -240,6 +278,10 @@ export function setupGrandalSheets(ctx) {
     const actions = h('div', { class: 'gs-actions' },
       !ed && owner && h('span', { class: 'tag' }, `Joueur · ${owner}`),
       mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; confirmingDelete = false; render() } }, ed ? 'Terminer' : 'Modifier'),
+      // Détacher : la fiche s'ouvre dans sa propre fenêtre, à glisser où l'on veut (y compris sur un autre écran)
+      detached()
+        ? h('button', { class: 'small gs-detach', title: 'Replacer la fiche sur le plateau', onclick: () => { dock(); sheetEl.hidden = false; render() } }, 'Rattacher')
+        : h('button', { class: 'small gs-detach', title: 'Détacher la fiche dans une fenêtre séparée, déplaçable sur un autre écran', onclick: detach }, 'Détacher'),
       // Croix dessinée en CSS (deux traits) : le caractère « × » n'est jamais centré pile, selon la police
       h('button', { class: 'gs-close', title: 'Fermer la fiche', 'aria-label': 'Fermer la fiche', onclick: close }))
 
@@ -352,6 +394,7 @@ export function setupGrandalSheets(ctx) {
               : h('p', { class: 'muted' }, 'Aucune'))
       })))
 
+    if (detached()) popup.document.title = `${get('name') || 'Fiche'} — Grandal`
     sheetEl.append(...[
       h('header', { class: 'gs-head' }, portrait, identity, actions),
       gmTools,
@@ -387,6 +430,8 @@ export function setupGrandalSheets(ctx) {
   return {
     open(id) { if (id !== openId) open(id) },
     close() { if (openId) close() },
+    /** Ferme la fiche sauf si elle est détachée (changer d'onglet ne la ferme pas) */
+    closeDocked() { if (openId && !detached()) close() },
     create,
     /** À appeler quand le profil, le rôle ou la liste des profils change */
     rerender() { if (openId) render() },

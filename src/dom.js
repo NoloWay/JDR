@@ -21,7 +21,7 @@ export function h(tag, attrs = {}, ...children) {
 export function liveRender(root, render, { busy = () => false } = {}) {
   let pending = false
   const typing = () => {
-    const a = document.activeElement
+    const a = root.ownerDocument.activeElement // (la fiche de Grandal peut vivre dans une autre fenêtre)
     return root.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox', 'range', 'button'].includes(a.type)))
   }
   const run = () => {

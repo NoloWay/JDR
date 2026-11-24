@@ -652,3 +652,7 @@ button.st-chip:hover { border-color: var(--accent); }
 
 /* Barre d'outils de dessin (règle, gabarits, crayon, brouillard…) : en bas à gauche de la carte, à la place de l'ancienne recherche d'aventurier */
 .tools-bar { right: auto; left: 12px; bottom: 12px; }
+
+/* Fiche détachée (fenêtre séparée, classe sur <html> de la fenêtre) : la fiche remplit toute la fenêtre */
+html.sheet-detached, html.sheet-detached body { margin: 0; height: 100%; overflow: hidden; display: block; background: #1c140c; }
+html.sheet-detached .sheet { position: fixed; inset: 0; width: auto; height: auto; border: none; border-radius: 0; box-shadow: none; z-index: auto; }
