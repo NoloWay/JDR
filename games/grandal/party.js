@@ -85,8 +85,8 @@ export function setupParty(ctx) {
     const canDrag = isGM || isMine(c)
     return h('article', {
       class: `tile${isMine(c) ? ' mine' : ''}`,
-      title: canDrag ? 'Cliquer : ouvrir la fiche · Glisser sur la carte : placer son jeton' : 'Cliquer : ouvrir la fiche',
-      onclick: () => ctx.sheets.open(id),
+      title: canDrag ? 'Cliquer : ouvrir / fermer la fiche · Glisser sur la carte : placer son jeton' : 'Cliquer : ouvrir / fermer la fiche',
+      onclick: () => ctx.sheets.toggle(id),
       draggable: canDrag,
       ondragstart: canDrag && ((e) => { e.dataTransfer.setData(CHARACTER_MIME, id); e.dataTransfer.effectAllowed = 'copy' }),
     },

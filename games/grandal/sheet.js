@@ -429,6 +429,8 @@ export function setupGrandalSheets(ctx) {
 
   return {
     open(id) { if (id !== openId) open(id) },
+    /** Vignette Aventuriers : ouvre la fiche, ou la ferme si c'est déjà celle qui est ouverte */
+    toggle(id) { if (id === openId) close(); else open(id) },
     close() { if (openId) close() },
     /** Ferme la fiche sauf si elle est détachée (changer d'onglet ne la ferme pas) */
     closeDocked() { if (openId && !detached()) close() },
