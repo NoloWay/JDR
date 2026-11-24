@@ -169,11 +169,51 @@ export function setupParty(ctx) {
       h('button', { onclick: () => { cancelPick(); ctx.setView('map') } }, 'Annuler'),
     ].filter(Boolean)))
 
-    const entries = [...characters.entries()].filter(([, c]) => canSee(c))
-      .sort(([, a], [, b]) => (a.get('name') || '').localeCompare(b.get('name') || ''))
+    const entries = sorted([...characters.entries()].filter(([, c]) => canSee(c)))
     if (!entries.length) gridEl.append(h('p', { class: 'muted roster-empty' }, 'Aucune fiche pour l’instant : « + Fiche » pour créer un aventurier.'))
-    for (const [id, c] of entries) gridEl.append(card(id, c))
+    // Les fiches dont on est le joueur propriétaire sont séparées des autres (sans titres pour qui n'en a aucune : MJ, observateur)
+    const mine = entries.filter(([, c]) => isMine(c))
+    const others = entries.filter(([, c]) => !isMine(c))
+    const group = (title, list) => {
+      if (!list.length) return
+      if (mine.length) gridEl.append(h('h3', { class: 'roster-group' }, title, h('span', { class: 'muted' }, ` ${list.length}`)))
+      for (const [id, c] of list) gridEl.append(card(id, c))
+    }
+    group('Mes fiches', mine)
+    group(mine.length ? 'Autres fiches' : 'Fiches', others)
   })
+
+  // ---------- Tri des fiches (choix local, mémorisé) ----------
+  const SORTS = {
+    name: { label: 'Nom', value: (id, c) => c.get('name') || '' },
+    player: { label: 'Joueur', value: (id, c) => ownerName(c) || null },
+    level: { label: 'Niveau', value: (id, c) => Number(c.get('level')) || 1 },
+    slot: { label: 'Vignette', value: (id) => { const k = slotOf(id); return k.length ? Math.min(...k) : null } },
+  }
+  let sortBy = 'name'
+  let sortDir = 1 // 1 = croissant, -1 = décroissant
+  try { const s = JSON.parse(localStorage.getItem('grandal:rosterSort')); if (SORTS[s?.by]) { sortBy = s.by; sortDir = s.dir === -1 ? -1 : 1 } } catch { /* tri par défaut */ }
+  // Les fiches sans valeur (sans joueur, hors vignette) restent en fin de liste, quel que soit le sens
+  function sorted(list) {
+    const { value } = SORTS[sortBy]
+    const name = (c) => c.get('name') || ''
+    return list.sort(([ia, a], [ib, b]) => {
+      const va = value(ia, a), vb = value(ib, b)
+      if (va == null || vb == null) return va == null && vb == null ? name(a).localeCompare(name(b), 'fr') : va == null ? 1 : -1
+      const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'fr', { numeric: true, sensitivity: 'base' })
+      return cmp * sortDir || name(a).localeCompare(name(b), 'fr')
+    })
+  }
+  const saveSort = () => { try { localStorage.setItem('grandal:rosterSort', JSON.stringify({ by: sortBy, dir: sortDir })) } catch { /* sans mémoire locale */ } }
+  const sortSelect = h('select', { 'aria-label': 'Trier les fiches par', onchange: (e) => { sortBy = e.target.value; saveSort(); renderRoster() } },
+    Object.entries(SORTS).map(([k, s]) => h('option', { value: k, selected: k === sortBy }, s.label)))
+  const sortDirBtn = h('button', { class: 'small sort-dir', onclick: () => { sortDir = -sortDir; saveSort(); updateSortUi(); renderRoster() } })
+  function updateSortUi() {
+    sortDirBtn.textContent = sortDir === 1 ? '↑ Croissant' : '↓ Décroissant'
+    sortDirBtn.title = sortDir === 1 ? 'Tri croissant (cliquer pour inverser)' : 'Tri décroissant (cliquer pour inverser)'
+  }
+  updateSortUi()
+  document.querySelector('.roster-head').insertBefore(h('div', { class: 'roster-sort' }, h('label', {}, h('span', { class: 'muted' }, 'Trier par'), sortSelect), sortDirBtn), document.getElementById('btn-new-sheet'))
 
   // ---------- MJ : profils des joueurs (ajout / suppression) ----------
   // Le MJ (Withex) et l'Observateur sont fixes : seuls les profils « Joueur » se gèrent ici.

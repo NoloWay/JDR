@@ -656,3 +656,11 @@ button.st-chip:hover { border-color: var(--accent); }
 /* Fiche détachée (fenêtre séparée, classe sur <html> de la fenêtre) : la fiche remplit toute la fenêtre */
 html.sheet-detached, html.sheet-detached body { margin: 0; height: 100%; overflow: hidden; display: block; background: #1c140c; }
 html.sheet-detached .sheet { position: fixed; inset: 0; width: auto; height: auto; border: none; border-radius: 0; box-shadow: none; z-index: auto; }
+
+/* Onglet Fiches : tri et séparation « Mes fiches » / « Autres fiches » */
+.roster-head h2 { margin-right: auto; }
+.roster-sort { display: flex; align-items: center; gap: 8px; }
+.roster-sort label { display: flex; align-items: center; gap: 6px; }
+.roster-group { grid-column: 1 / -1; margin: 8px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.roster-group:first-child { margin-top: 0; }
+.roster-group .muted { margin-left: 6px; letter-spacing: 0; }
