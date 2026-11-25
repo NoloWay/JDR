@@ -32,6 +32,16 @@ export function roll(target, mode = 'normal') {
   return { sides: SIDES, target, mode, values, rule: 'over', ...pick(values, target, mode) }
 }
 
+/** Jet de dégâts : `count` dés à `faces` faces, plus une valeur fixe (sans notion de réussite) */
+export function rollDamage(count, faces, bonus = 0) {
+  const values = Array.from({ length: count }, () => {
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    return 1 + (buf[0] % faces)
+  })
+  return { count, faces, bonus, values, total: values.reduce((a, b) => a + b, 0) + bonus }
+}
+
 /** Jet libre d'un d20, sans valeur demandée */
 export const rollFreeD20 = () => rollFree(SIDES)
 
@@ -47,5 +57,9 @@ if (typeof process !== 'undefined' && process.argv?.[1]?.replace(/\\/g, '/').end
   eq(pick([20, 5], 10, 'dis').outcome, 'fail') //    désavantage : on garde 5
   eq(pick([20, 5], 10, 'adv').outcome, 'crit-success')
   eq(pick([1, 15], 10, 'dis').outcome, 'crit-fail')
+  const dmg = rollDamage(3, 6, 2)
+  eq(dmg.values.length, 3)
+  eq(dmg.values.every((v) => v >= 1 && v <= 6), true)
+  eq(dmg.total, dmg.values.reduce((a, b) => a + b, 0) + 2)
   console.log('grandal/dice.js : ok')
 }

@@ -12,7 +12,7 @@ import '../../src/style.css'
 import './grandal.css'
 import { connect } from '../../src/net.js'
 // Jets de Grandal : d20 seulement, réussite à la valeur demandée ou plus, 20 / 1 critiques (games/grandal/dice.js)
-import { roll, rollFreeD20, OUTCOME_LABEL, MODE_LABEL } from './dice.js'
+import { roll, rollFreeD20, rollDamage, OUTCOME_LABEL, MODE_LABEL } from './dice.js'
 import { setupGrandalSheets, replaceCharacters, toBase64, fromBase64 } from './sheet.js'
 import { setupBoard } from '../../src/board.js'
 import { setupMusic } from '../../src/music.js'
@@ -117,6 +117,11 @@ function colorOf(who) {
 const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text ?? '' })
 const hhmm = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
+// Jet de dégâts d'une arme (bouton de l'inventaire) : N dés à F faces + valeur fixe ; case « Jet secret » respectée
+function rollWeapon(label, count, faces, bonus) {
+  const r = rollDamage(count, faces, bonus)
+  pushLog({ text: label, dmg: { count: r.count, faces: r.faces, bonus: r.bonus, values: r.values, total: r.total } })
+}
 function renderLog() {
   const ul = $('log-list')
   ul.innerHTML = ''
@@ -125,7 +130,8 @@ function renderLog() {
     li.style.setProperty('--who', colorOf(entry.who))
     if (entry.secret) { li.classList.add('secret'); li.title = 'Jet secret : visible par son auteur et le MJ' }
     const r = entry.roll
-    const [subject, action] = r && entry.text.includes(' · ') ? entry.text.split(' · ', 2) : [null, entry.text]
+    const dmg = entry.dmg
+    const [subject, action] = (r || dmg) && entry.text.includes(' · ') ? entry.text.split(' · ', 2) : [null, entry.text]
 
     const head = el('div', 'entry-head')
     head.append(el('b', 'who', roleOf(entry.who) === 'gm' ? `${entry.who} (MJ)` : entry.who))
@@ -135,7 +141,12 @@ function renderLog() {
     li.append(head)
 
     const body = el('div', 'entry-body')
-    if (r) {
+    if (dmg) {
+      // Jet de dégâts : total en grand, détail des dés dessous
+      const fixed = dmg.bonus ? ` ${dmg.bonus > 0 ? '+' : '−'} ${Math.abs(dmg.bonus)}` : ''
+      body.append(el('span', 'action', action), el('span', 'roll-value', String(dmg.total)))
+      li.append(body, el('div', 'roll-detail', `🎲 ${dmg.count}d${dmg.faces} [${dmg.values.join(' + ')}]${fixed}`))
+    } else if (r) {
       li.classList.add(`outcome-${r.outcome}`)
       body.append(el('span', 'action', action), el('span', 'roll-result', OUTCOME_LABEL[r.outcome]))
       const mode = MODE_LABEL[r.mode] ? ` · ${MODE_LABEL[r.mode]}` : ''
@@ -158,7 +169,7 @@ doc.getMap('characters').observeDeep(renderLog)
 // ---------- Fiches des aventuriers ----------
 // Fiche propre à Grandal (games/grandal/sheet.js) : « Joueur » = un profil joueur existant, choisi par le MJ ;
 // modification : MJ et propriétaire ; création (« + Fiche », bouton gm-only) et suppression : MJ seul
-const sheets = setupGrandalSheets({ doc, me, ownerOf: ownerOfSheet, playerChoices: () => profiles.players(), onRoll: rollCheck })
+const sheets = setupGrandalSheets({ doc, me, ownerOf: ownerOfSheet, playerChoices: () => profiles.players(), onRoll: rollCheck, onRollWeapon: rollWeapon })
 $('btn-new-sheet').addEventListener('click', () => sheets.create())
 
 // ---------- Onglets Carte / Fiches (choix local, mémorisé) et vignettes des aventuriers ----------

@@ -8,6 +8,8 @@
 //   stat:<clé>                       { value, adj } pour chaque caractéristique (STATS) : value = valeur de base (inchangée par les
 //                                    effets), adj = écart temporaire (+/−, 0 si absent) ; valeur effective = value + adj ;
 //                                    modificateur calculé sur la valeur effective (modifier), jamais stocké (un ancien champ mod est ignoré)
+//   gran                             nombre de Gran (la monnaie), entier ≥ 0
+//   inventory:weapons                [{ name, desc, dice, bonus }] armes (INVENTORY_CATEGORIES) ; dice = « 2d6 » (nombre de dés + faces), bonus = valeur fixe ajoutée
 //   skills:<catégorie>               [{ name, level }] compétences (SKILL_CATEGORIES), level = connaissance | expertise | maitrise ;
 //                                    le bonus (+1 / +2 / +3) se déduit du niveau, jamais stocké
 //   player                           joueur propriétaire (profil joueur, choisi par le MJ)
@@ -57,6 +59,27 @@ export const SKILL_LEVELS = [
   { key: 'maitrise', label: 'Maîtrise', bonus: 3 },
 ]
 const skillLevel = (key) => SKILL_LEVELS.find((l) => l.key === key) ?? SKILL_LEVELS[0]
+// Inventaire : catégories d'objets (pour l'instant les armes seulement ; chacune a son en-tête)
+export const INVENTORY_CATEGORIES = [
+  { key: 'weapons', label: 'Armes' },
+]
+/** « 2d6 », « D8 », « 3 d 10 » → « 2d6 », « 1d8 », « 3d10 » ; null si ce n'est pas un jet de dés valide (au moins 1 dé, 2 faces) */
+export function parseDice(text) {
+  const m = /^\s*(\d*)\s*d\s*(\d+)\s*$/i.exec(String(text))
+  if (!m) return null
+  const count = m[1] === '' ? 1 : Number(m[1])
+  const faces = Number(m[2])
+  return count >= 1 && count <= 99 && faces >= 2 && faces <= 1000 ? `${count}d${faces}` : null
+}
+/** Jet d'une arme pour l'affichage : « 2d6 + 3 », « 1d8 − 1 », « 1d8 », « +2 » (vide si rien n'est défini) */
+export function weaponRoll(it) {
+  const dice = it.dice ? parseDice(it.dice) : null
+  const bonus = Math.round(Number(it.bonus)) || 0
+  if (dice && bonus) return `${dice} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`
+  return dice || (bonus ? `${bonus > 0 ? '+' : '−'}${Math.abs(bonus)}` : '')
+}
+/** Largeur du champ des Gran : suit le nombre de chiffres */
+const granWidth = (value) => `${Math.max(4, String(Math.round(Number(value)) || 0).length + 2)}ch`
 const PORTRAIT_SIZE = 512
 
 // Silhouette de d20 (icosaèdre vu de face : contour hexagonal, triangle central, arêtes), au trait,
@@ -108,7 +131,8 @@ async function shrink(file) {
 
 /**
  * ctx : { doc, me() → { name, isGM }, ownerOf(nom, joueur) → profil ou '', playerChoices() → profils joueurs, onOpen(),
- *         onRoll(libellé, valeur demandée) → jet d'une caractéristique }
+ *         onRoll(libellé, valeur demandée) → jet d'une caractéristique,
+ *         onRollWeapon(libellé, nombre de dés, faces, valeur fixe) → jet de dégâts d'une arme }
  * Renvoie { open(id), close(), create(), rerender() }
  */
 export function setupGrandalSheets(ctx) {
@@ -395,11 +419,78 @@ export function setupGrandalSheets(ctx) {
       })))
 
     if (detached()) popup.document.title = `${get('name') || 'Fiche'} — Grandal`
+    // ---- Inventaire : les Gran (monnaie) puis les objets par catégorie, chacune avec son en-tête ----
+    // Bouton de jet d'une arme : mêmes règles que ceux des caractéristiques (MJ et propriétaire seulement) ; il faut des dés définis
+    const weaponButton = (it) => {
+      const parsed = it.dice ? parseDice(it.dice) : null
+      const ok = mayEdit && !!parsed
+      return d20Button({
+        disabled: !ok,
+        title: !parsed ? 'Aucun jet défini pour cette arme (dés à renseigner en mode « Modifier »)'
+          : ok ? `Jet de ${it.name || 'l’arme'} : ${weaponRoll(it)}` : 'Seuls le MJ et le joueur de cette fiche peuvent lancer ce jet',
+        'aria-label': `Lancer le jet de ${it.name || 'l’arme'} (${weaponRoll(it) || 'aucun jet'})`,
+        onclick: () => {
+          const p = it.dice ? parseDice(it.dice) : null
+          if (!p || !canEdit(c)) return
+          const [count, faces] = p.split('d').map(Number)
+          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${it.name || 'Arme'}`, count, faces, Math.round(Number(it.bonus)) || 0)
+        },
+      })
+    }
+    const gran = num(get('gran'), 0)
+    const inventory = h('section', { class: 'gs-sec gs-inventory' }, h('h3', { class: 'gs-sec-title' }, 'Inventaire'),
+      h('div', { class: 'gs-gran', title: 'Gran : la monnaie' },
+        h('span', { class: 'gran-logo', 'aria-hidden': 'true' }, 'G'),
+        h('span', { class: 'gs-gran-label' }, 'Gran'),
+        mayEdit
+          // Le champ s'agrandit avec le nombre (un chiffre de plus = un caractère de plus), y compris pendant la saisie
+          ? h('input', {
+            type: 'number', min: 0, class: 'num gs-gran-input', value: gran, 'aria-label': 'Nombre de Gran', style: `width:${granWidth(gran)}`,
+            oninput: (e) => { e.target.style.width = granWidth(e.target.value) },
+            onchange: (e) => c.set('gran', Math.max(0, num(e.target.value, 0))),
+          })
+          : h('b', { class: 'gs-gran-value' }, gran)),
+      INVENTORY_CATEGORIES.map(({ key, label }) => {
+        const k = `inventory:${key}`
+        const list = get(k, [])
+        const setList = (l) => c.set(k, l)
+        const shown = list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim())
+        return h('div', { class: 'gs-inv-group' }, h('h4', {}, label),
+          ed
+            ? [...list.map((it, i) => h('div', { class: 'gs-effect-edit' },
+              h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
+              h('button', { class: 'icon', title: 'Retirer l’arme', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
+              // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe ajoutée au résultat
+              h('div', { class: 'gs-weapon-roll' },
+                h('input', {
+                  class: 'gs-dice-input', value: it.dice ?? '', placeholder: '2d6', maxLength: 9, 'aria-label': 'Dés à jeter : nombre de dés et de faces (ex. 2d6)',
+                  title: 'Nombre de dés et de faces : 2d6, 1d8, d20…',
+                  onchange: (e) => {
+                    const d = e.target.value.trim() === '' ? '' : parseDice(e.target.value)
+                    if (d === null) { e.target.value = it.dice ?? ''; return } // format invalide : on garde l'ancienne valeur
+                    setList(list.map((x, j) => (j === i ? { ...x, dice: d } : x)))
+                  },
+                }),
+                h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
+                h('input', {
+                  type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat',
+                  title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
+                  onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, bonus: num(e.target.value, 0) } : x))),
+                })),
+              h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
+            h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, '+ Arme')]
+            : shown.length
+              ? h('ul', {}, shown.map((it) => h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'), h('span', { class: 'gs-weapon-right' }, weaponRoll(it) && h('span', { class: 'gs-weapon-dmg', title: 'Jet : dés + valeur fixe' }, weaponRoll(it)), ctx.onRollWeapon && weaponButton(it))), it.desc && h('p', {}, it.desc))))
+              : h('p', { class: 'muted' }, 'Aucune'))
+      }))
+
     sheetEl.append(...[
       h('header', { class: 'gs-head' }, portrait, identity, actions),
       gmTools,
       statusUi.sheet(openId, { canEdit: mayEdit, ed }),
-      h('div', { class: 'gs-body' }, statsTable, effects),
+      // Caractéristiques et inventaire côte à côte, puis les effets sur toute la largeur
+      h('div', { class: 'gs-body' }, statsTable, inventory),
+      h('div', { class: 'gs-effects-sec' }, effects),
       skills,
       !mayEdit && h('p', { class: 'readonly-note' }, owner ? `Lecture seule : fiche de ${owner}` : 'Lecture seule'),
     ].filter(Boolean))
