@@ -120,7 +120,7 @@ const hhmm = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', m
 // Jet de dégâts d'une arme (bouton de l'inventaire) : N dés à F faces + valeur fixe ; case « Jet secret » respectée
 function rollWeapon(label, count, faces, bonus) {
   const r = rollDamage(count, faces, bonus)
-  pushLog({ text: label, dmg: { count: r.count, faces: r.faces, bonus: r.bonus, values: r.values, total: r.total } })
+  pushLog({ text: label, dmg: { count: r.count, faces: r.faces, bonus: r.bonus, values: r.values, total: r.total, raised: r.raised } })
 }
 function renderLog() {
   const ul = $('log-list')
@@ -145,7 +145,8 @@ function renderLog() {
       // Jet de dégâts : total en grand, détail des dés dessous
       const fixed = dmg.bonus ? ` ${dmg.bonus > 0 ? '+' : '−'} ${Math.abs(dmg.bonus)}` : ''
       body.append(el('span', 'action', action), el('span', 'roll-value', String(dmg.total)))
-      li.append(body, el('div', 'roll-detail', `🎲 ${dmg.count}d${dmg.faces} [${dmg.values.join(' + ')}]${fixed}`))
+      // raised : le résultat était inférieur à 1, il est remonté à 1 (règle de Grandal)
+      li.append(body, el('div', 'roll-detail', `🎲 ${dmg.count}d${dmg.faces} [${dmg.values.join(' + ')}]${fixed}${dmg.raised ? ' → minimum 1' : ''}`))
     } else if (r) {
       li.classList.add(`outcome-${r.outcome}`)
       body.append(el('span', 'action', action), el('span', 'roll-result', OUTCOME_LABEL[r.outcome]))

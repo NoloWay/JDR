@@ -713,3 +713,58 @@ input[type='number']::-webkit-inner-spin-button:hover {
 .gs-inv-weapons ul { margin-bottom: 10px; }
 .gs-unarmed-edit { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px dashed rgba(74, 56, 36, 0.8); }
 .gs-bonus-auto { display: inline-flex; align-items: baseline; gap: 2px; min-width: 70px; justify-content: center; padding: 4px 8px; font-family: var(--display); font-weight: 700; color: #f0cc6a; background: rgba(0, 0, 0, 0.25); border: 1px dashed rgba(217, 164, 65, 0.4); border-radius: 3px; font-variant-numeric: tabular-nums; }
+
+/* Modification d'une fiche : « Terminer » bien visible + « Annuler les modifications » (rien n'est appliqué avant) */
+.gs-actions { flex-wrap: wrap; }
+.gs-finish {
+  padding: 9px 26px; font-family: var(--display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #1a120a; background: linear-gradient(180deg, #f0cc6a, #d9a441); border: 1px solid #8a6212; border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.35), 0 0 16px rgba(217, 164, 65, 0.5);
+}
+.gs-finish:hover, .gs-finish:focus-visible { background: linear-gradient(180deg, #ffe08a, #e8b84a); box-shadow: 0 0 0 2px rgba(255, 224, 138, 0.6), 0 0 22px rgba(217, 164, 65, 0.7); }
+.gs-cancel { padding: 9px 16px; font-size: 0.95rem; color: var(--text); border-color: rgba(214, 90, 72, 0.6); }
+.gs-cancel:hover, .gs-cancel:focus-visible { background: rgba(181, 71, 58, 0.2); border-color: #d65a48; }
+.gs-dirty { color: #ffd36b; border-color: rgba(255, 211, 107, 0.7); }
+
+/* Fenêtre de confirmation : quitter avec des modifications non validées */
+.gs-modal-anchor { position: sticky; top: 0; height: 0; z-index: 20; }
+.gs-modal { position: absolute; top: 0; left: -28px; right: -28px; display: grid; place-items: center; background: rgba(8, 5, 2, 0.72); }
+.gs-modal-card { width: min(460px, 90%); padding: 22px 24px; background: #261c12; border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.7); }
+.gs-modal-card h3 { margin: 0 0 10px; font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; color: var(--accent); }
+.gs-modal-card p { margin: 0 0 18px; font-size: 1.05rem; }
+.gs-modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+
+/* Inventaire : en-tête de chaque sous-section, sous-sections ajoutées */
+.gs-inv-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.gs-inv-head h4 { margin: 0; }
+.gs-section-name { flex: 1 1 160px; min-width: 0; font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spacing: 0.1em; color: var(--accent); }
+.gs-inv-confirm { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.95rem; }
+.gs-inv-groups > :last-child:nth-child(even) { grid-column: 1 / -1; }
+.gs-weapon-roll .gs-roll-btn { margin-left: auto; }
+.gs-add-section { display: flex; gap: 8px; margin-top: 16px; }
+.gs-add-section input { flex: 1; min-width: 0; }
+
+/* Lignes d'inventaire : lecture + bouton ✎ qui ouvre les champs (✓ referme, × supprime) */
+.gs-inv-group ul { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.gs-weapon-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.gs-weapon-right { display: inline-flex; align-items: center; gap: 10px; }
+.gs-line-btn {
+  width: 26px; height: 26px; padding: 0; display: inline-grid; place-items: center; line-height: 1; font-size: 0.95rem;
+  color: var(--muted); background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(74, 56, 36, 0.8); border-radius: 3px;
+}
+.gs-line-btn:hover, .gs-line-btn:focus-visible { color: var(--accent); border-color: var(--accent); }
+.gs-line-del:hover, .gs-line-del:focus-visible { color: #ff9a8a; border-color: #d65a48; }
+.gs-line-btns { display: inline-flex; gap: 6px; }
+.gs-line-open { padding: 8px 10px; background: rgba(217, 164, 65, 0.06); border: 1px solid rgba(217, 164, 65, 0.3); border-radius: 4px; }
+.gs-line-open .gs-effect-edit { margin-bottom: 0; }
+.gs-bonus-source { width: 150px; }
+.gs-inventory-rest { margin-top: 28px; }
+.gs-inv-groups > :last-child:nth-child(even) { grid-column: auto; }
+.gs-inv-groups > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.gs-inv-groups > .gs-inv-weapons { grid-column: auto; }
+
+/* Suppression d'une ligne d'inventaire : confirmation dans la ligne ; bouton ↺ grisé s'il n'y a rien à annuler */
+.gs-line-confirm { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid rgba(214, 90, 72, 0.7); border-radius: 4px; background: rgba(181, 71, 58, 0.14); }
+.gs-line-confirm span { flex: 1 1 200px; }
+.gs-line-btn:disabled { opacity: 0.35; cursor: default; }
+.gs-line-btn:disabled:hover { color: var(--muted); border-color: rgba(74, 56, 36, 0.8); }

@@ -9,10 +9,11 @@
 //                                    effets), adj = écart temporaire (+/−, 0 si absent) ; valeur effective = value + adj ;
 //                                    modificateur calculé sur la valeur effective (modifier), jamais stocké (un ancien champ mod est ignoré)
 //   gran                             nombre de Gran (la monnaie), entier ≥ 0
-//   inventory:weapons                [{ name, desc, dice, bonus }] armes (INVENTORY_CATEGORIES) ; dice = « 2d6 » (nombre de dés + faces), bonus = valeur fixe ajoutée
+//   inventory:weapons                [{ name, desc, dice, bonus, bonusStat }] armes (INVENTORY_CATEGORIES) ; dice = « 2d6 » (nombre de dés + faces),
+//                                    valeur ajoutée = bonus (écrite) ou, si bonusStat est une clé de STATS, le modificateur de cette caractéristique
+//                                    (suit le tableau en direct) ; absent = liste par défaut [DEFAULT_WEAPON] (Mains nues), jamais écrite avant une modification
 //   inventory:equipment | inventory:items   [{ name, desc }] équipement et objets
-//   unarmed                          { dice, desc } facultatif : surcharges (MJ seul) de la ligne « Mains nues », présente sur toutes les fiches
-//                                    (2d4 par défaut, bonus = modificateur de Force, jamais stocké)
+//   unarmed                          ancien réglage de la ligne « Mains nues » (dice, desc), repris tant que la liste d'armes n'est pas écrite
 //   skills:<catégorie>               [{ name, level }] compétences (SKILL_CATEGORIES), level = connaissance | expertise | maitrise ;
 //                                    le bonus (+1 / +2 / +3) se déduit du niveau, jamais stocké
 //   player                           joueur propriétaire (profil joueur, choisi par le MJ)
@@ -64,11 +65,13 @@ export const SKILL_LEVELS = [
 const skillLevel = (key) => SKILL_LEVELS.find((l) => l.key === key) ?? SKILL_LEVELS[0]
 // Inventaire : catégories d'objets (pour l'instant les armes seulement ; chacune a son en-tête)
 export const INVENTORY_CATEGORIES = [
-  { key: 'weapons', label: 'Armes', kind: 'weapon' },
+  { key: 'weapons', label: 'Armes', kind: 'weapon', add: '+ Arme' },
   { key: 'equipment', label: 'Équipement', kind: 'simple', one: 'équipement', add: '+ Équipement', empty: 'Aucun' },
   { key: 'items', label: 'Objets', kind: 'simple', one: 'objet', add: '+ Objet', empty: 'Aucun' },
 ]
-export const UNARMED_DICE = '2d4' // « Mains nues » : ligne par défaut de toutes les fiches, bonus = modificateur de Force
+export const UNARMED_DICE = '2d4'
+// « Mains nues » : ligne présente par défaut tant que les armes d'une fiche n'ont jamais été modifiées ; ensuite, une ligne comme les autres
+export const DEFAULT_WEAPON = { name: 'Mains nues', desc: '', dice: UNARMED_DICE, bonus: 0, bonusStat: 'force' }
 /** « 2d6 », « D8 », « 3 d 10 » → « 2d6 », « 1d8 », « 3d10 » ; null si ce n'est pas un jet de dés valide (au moins 1 dé, 2 faces) */
 export function parseDice(text) {
   const m = /^\s*(\d*)\s*d\s*(\d+)\s*$/i.exec(String(text))
@@ -148,7 +151,19 @@ export function setupGrandalSheets(ctx) {
   const st = setupStatus(ctx.doc)
   const statusUi = statusViews(st)
   let openId = null
-  let editing = false
+  // Brouillon : en mode « Modifier », rien n'est écrit dans le Y.Doc avant « Terminer ».
+  //   values   : clés du Y.Map de la fiche (nom, genre, race, âge, level, classes, effects:*, skills:*, player)
+  //   statBase : valeurs de base des caractéristiques (clé → nombre) ; l'écart « effective » reste modifiable à la volée
+  //   portrait : undefined = inchangé, null = retiré, { type, data } = nouvelle image
+  //   status   : maximums et vitesse de base du statut (clé → nombre)
+  // null = fiche en consultation. L'inventaire, les Gran, l'écart des caractéristiques et le statut courant s'écrivent à la volée.
+  let draft = null
+  let pendingDiscard = null // action à lancer si on abandonne des modifications non validées (fenêtre de confirmation)
+  let confirmingSection = null // id de la sous-section d'inventaire dont on confirme la suppression
+  const editingLines = new Set() // lignes d'inventaire dont les champs sont ouverts (« catégorie#index »)
+  const lineSnaps = new Map() // état d'une ligne à l'ouverture de ses champs (JSON), ou NEW_LINE pour une ligne qui vient d'être ajoutée
+  const NEW_LINE = Symbol('nouvelle ligne')
+  let confirmingLine = null // ligne dont on confirme la suppression (« catégorie#index »)
   let confirmingDelete = false // étape de confirmation de la suppression (dans la fiche, pas de boîte du navigateur)
 
   const ownerName = (c) => ctx.ownerOf(c.get('name'), c.get('player'))
@@ -203,32 +218,75 @@ export function setupGrandalSheets(ctx) {
     w.focus()
   }
   setInterval(() => { if (popup && popup.closed) { dock(); sheetEl.hidden = !openId; if (openId) render() } }, 1000) // filet de sécurité
+  addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = '' } }) // fermeture de la page avec des modifications non validées
   addEventListener('pagehide', () => { if (detached()) popup.close() }) // la page principale se ferme : la fenêtre aussi
 
-  function close() {
+  const dirty = () => !!draft && (Object.keys(draft.values).length > 0 || Object.keys(draft.statBase).length > 0 || draft.portrait !== undefined || Object.keys(draft.status).length > 0)
+  // Image du brouillon (adresse libérée quand le brouillon se termine)
+  let draftUrl = null
+  const draftPortraitUrl = (p) => {
+    if (!draftUrl || draftUrl.data !== p.data) { if (draftUrl) URL.revokeObjectURL(draftUrl.url); draftUrl = { data: p.data, url: URL.createObjectURL(new Blob([p.data], { type: p.type })) } }
+    return draftUrl.url
+  }
+  function endDraft() {
+    draft = null
+    pendingDiscard = null
+    if (draftUrl) { URL.revokeObjectURL(draftUrl.url); draftUrl = null }
+  }
+  /** Lance `then` tout de suite, ou après confirmation si des modifications ne sont pas validées */
+  function askLeave(then) {
+    if (dirty()) { pendingDiscard = then; render(); return }
+    then()
+  }
+  function closeNow() {
     if (popup) dock()
     openId = null
-    editing = false
+    endDraft()
     confirmingDelete = false
+    confirmingSection = null
+    editingLines.clear()
+    lineSnaps.clear()
+    confirmingLine = null
     sheetEl.hidden = true
     sheetEl.innerHTML = ''
   }
   function open(id) {
     if (!characters.has(id)) return
-    if (id !== openId) { editing = false; confirmingDelete = false }
+    if (id !== openId && dirty()) { pendingDiscard = () => open(id); render(); return } // une autre fiche : on abandonne d'abord les modifications
+    if (id !== openId) { endDraft(); confirmingDelete = false; confirmingSection = null; editingLines.clear(); lineSnaps.clear(); confirmingLine = null }
     ctx.onOpen?.()
     openId = id
     sheetEl.hidden = false
     render()
     if (detached()) popup.focus() // la fiche détachée affiche la dernière fiche ouverte
   }
+  function startEdit() { draft = { values: {}, statBase: {}, portrait: undefined, status: {} }; confirmingDelete = false; render() }
+  function cancelEdit() { endDraft(); confirmingDelete = false; render() }
+  /** « Terminer » : applique tout le brouillon d'un coup */
+  function commit() {
+    const c = characters.get(openId)
+    if (!c || !draft) return
+    const d = draft
+    ctx.doc.transact(() => {
+      for (const [k, v] of Object.entries(d.values)) c.set(k, v)
+      for (const [k, n] of Object.entries(d.statBase)) {
+        const adj = num(c.get(`stat:${k}`)?.adj, 0)
+        c.set(`stat:${k}`, adj ? { value: n, adj } : { value: n })
+      }
+      if (d.portrait === null) portraits.delete(openId)
+      else if (d.portrait) portraits.set(openId, d.portrait)
+      for (const [k, n] of Object.entries(d.status)) st.putRaw(openId, k, n)
+    })
+    endDraft()
+    confirmingDelete = false
+    render()
+  }
   function create() {
     if (!ctx.me().isGM) return
     const id = crypto.randomUUID()
     characters.set(id, newCharacter())
     open(id)
-    editing = true
-    render()
+    startEdit()
   }
   function remove(id, name) {
     if (!ctx.me().isGM) return
@@ -242,7 +300,7 @@ export function setupGrandalSheets(ctx) {
       portraits.delete(id)
       characters.delete(id)
     })
-    close()
+    closeNow()
   }
 
   // Un clic ne doit pas perdre son bouton : taper dans un champ puis cliquer (« Supprimer la fiche », « Terminer »…) fait perdre le
@@ -261,24 +319,31 @@ export function setupGrandalSheets(ctx) {
 
   function build() {
     const c = characters.get(openId)
-    if (!c || !canSee(c)) return close()
+    if (!c || !canSee(c)) return closeNow()
     const isGM = ctx.me().isGM
     const mayEdit = canEdit(c)
-    const ed = editing && mayEdit
-    const get = (k, def = '') => c.get(k) ?? def
-    const set = (k) => (e) => c.set(k, e.target.value)
+    if (draft && !mayEdit) endDraft() // plus de droit de modification (profil changé) : le brouillon est abandonné
+    const ed = !!draft && mayEdit
+    // get : lecture avec le brouillon (champs validés par « Terminer ») ; live : lecture directe (données modifiables à la volée)
+    const get = (k, def = '') => (draft && k in draft.values ? draft.values[k] : c.get(k)) ?? def
+    const live = (k, def = '') => c.get(k) ?? def
+    // setD : écrit dans le brouillon en mode « Modifier » ; sinon (ne devrait pas arriver) directement
+    const setD = (k, v) => { if (draft) { draft.values[k] = v; render() } else c.set(k, v) }
+    const set = (k) => (e) => setD(k, e.target.value)
     const owner = ownerName(c)
+    const ownerShown = ed ? ctx.ownerOf(get('name'), get('player')) : owner
 
     // ---- Généralités ----
-    const url = portraitUrl(openId)
+    const dp = draft ? draft.portrait : undefined
+    const url = dp === undefined ? portraitUrl(openId) : dp === null ? null : draftPortraitUrl(dp)
     const portrait = h('div', { class: `gs-portrait${url ? '' : ' empty'}` },
       url ? h('img', { src: url, alt: `Portrait de ${get('name')}` }) : h('span', { class: 'gs-portrait-mark', 'aria-hidden': 'true' }, '❦'),
       ed && h('div', { class: 'gs-portrait-tools' },
         h('button', { class: 'small', onclick: pickPortrait }, url ? 'Changer' : 'Importer'),
-        url && h('button', { class: 'small', onclick: () => portraits.delete(openId) }, 'Retirer')))
+        url && h('button', { class: 'small', onclick: () => { draft.portrait = null; render() } }, 'Retirer')))
 
     const classes = get('classes', [])
-    const setClasses = (list) => c.set('classes', list)
+    const setClasses = (list) => setD('classes', list)
     const identity = h('div', { class: 'gs-identity' },
       ed
         ? h('input', { class: 'gs-name-input', value: get('name'), placeholder: 'Nom complet', 'aria-label': 'Nom complet', onchange: set('name') })
@@ -291,7 +356,7 @@ export function setupGrandalSheets(ctx) {
         : h('div', { class: 'gs-meta' }, [get('gender'), get('race'), get('age') && (/^\d+$/.test(String(get('age')).trim()) ? `${get('age')} ans` : get('age'))].filter(Boolean).join('  ·  ') || 'Genre, race et âge à renseigner'),
       h('div', { class: 'gs-levels' },
         ed
-          ? field('Niveau', h('input', { type: 'number', min: 0, class: 'num', value: num(get('level'), 1), onchange: (e) => c.set('level', num(e.target.value, 1)) }))
+          ? field('Niveau', h('input', { type: 'number', min: 0, class: 'num', value: num(get('level'), 1), onchange: (e) => setD('level', num(e.target.value, 1)) }))
           : h('span', { class: 'gs-lv' }, `LV ${num(get('level'), 1)}`),
         h('ul', { class: 'gs-classes' },
           classes.map((cl, i) => ed
@@ -307,19 +372,23 @@ export function setupGrandalSheets(ctx) {
     // ---- En-tête : actions ----
     const actions = h('div', { class: 'gs-actions' },
       !ed && owner && h('span', { class: 'tag' }, `Joueur · ${owner}`),
-      mayEdit && h('button', { class: ed ? 'small primary' : 'small', onclick: () => { editing = !editing; confirmingDelete = false; render() } }, ed ? 'Terminer' : 'Modifier'),
+      mayEdit && !ed && h('button', { class: 'small', onclick: startEdit }, 'Modifier'),
+      // Modification : rien n'est appliqué avant « Terminer » ; « Annuler les modifications » revient à l'état d'avant
+      ed && dirty() && h('span', { class: 'tag gs-dirty', title: 'Ces modifications ne sont pas encore appliquées' }, 'Non validé'),
+      ed && h('button', { class: 'gs-finish', title: 'Valider et appliquer toutes les modifications', onclick: commit }, 'Terminer'),
+      ed && h('button', { class: 'gs-cancel', title: 'Abandonner les modifications et revenir à la fiche telle qu’elle était', onclick: cancelEdit }, 'Annuler les modifications'),
       // Détacher : la fiche s'ouvre dans sa propre fenêtre, à glisser où l'on veut (y compris sur un autre écran)
       detached()
         ? h('button', { class: 'small gs-detach', title: 'Replacer la fiche sur le plateau', onclick: () => { dock(); sheetEl.hidden = false; render() } }, 'Rattacher')
         : h('button', { class: 'small gs-detach', title: 'Détacher la fiche dans une fenêtre séparée, déplaçable sur un autre écran', onclick: detach }, 'Détacher'),
       // Croix dessinée en CSS (deux traits) : le caractère « × » n'est jamais centré pile, selon la police
-      h('button', { class: 'gs-close', title: 'Fermer la fiche', 'aria-label': 'Fermer la fiche', onclick: close }))
+      h('button', { class: 'gs-close', title: 'Fermer la fiche', 'aria-label': 'Fermer la fiche', onclick: () => askLeave(closeNow) }))
 
     // MJ : joueur propriétaire, suppression
     const gmTools = ed && isGM && h('div', { class: 'gs-gm' },
       field('Joueur', h('select', { onchange: set('player') },
-        h('option', { value: '', selected: !owner }, '— Aucun —'),
-        ctx.playerChoices().map((n) => h('option', { value: n, selected: n === owner }, n)))),
+        h('option', { value: '', selected: !ownerShown }, '— Aucun —'),
+        ctx.playerChoices().map((n) => h('option', { value: n, selected: n === ownerShown }, n)))),
       confirmingDelete
         // Deuxième étape : rien n'est supprimé avant « Oui, supprimer »
         ? h('div', { class: 'gs-confirm', role: 'alertdialog', 'aria-label': 'Confirmer la suppression de la fiche' },
@@ -335,7 +404,7 @@ export function setupGrandalSheets(ctx) {
       h('div', { class: 'gs-effects' }, EFFECTS.map(({ key, label }) => {
         const k = `effects:${key}`
         const list = get(k, [])
-        const setList = (l) => c.set(k, l)
+        const setList = (l) => setD(k, l)
         const shown = list.filter((fx) => (fx.name ?? '').trim() || (fx.desc ?? '').trim()) // consultation : sans les effets vides
         return h('div', { class: 'gs-effect-group' }, h('h4', {}, label),
           ed
@@ -351,13 +420,14 @@ export function setupGrandalSheets(ctx) {
 
     // ---- Caractéristiques : 9 lignes (3 puis 6), 3 colonnes (nom, valeur, modificateur calculé) ----
     // Caractéristique jamais saisie (ou champ vidé) : STAT_DEFAULT, soit un modificateur de +0
-    const statBase = (key) => num(c.get(`stat:${key}`)?.value, STAT_DEFAULT)
+    const committedBase = (key) => num(c.get(`stat:${key}`)?.value, STAT_DEFAULT)
+    const statBase = (key) => (draft && key in draft.statBase ? draft.statBase[key] : committedBase(key)) // (valeur de base : brouillon en modification)
     const statAdj = (key) => num(c.get(`stat:${key}`)?.adj, 0)
     const statValue = (key) => statBase(key) + statAdj(key) // valeur effective
     // Écriture d'un des deux champs sans écraser l'autre ; adj = 0 n'est pas stocké
-    const writeStat = (key, base, adj) => c.set(`stat:${key}`, adj ? { value: base, adj } : { value: base })
-    const setStat = (key) => (e) => writeStat(key, num(e.target.value, STAT_DEFAULT), statAdj(key))
-    const setAdj = (key, adj) => writeStat(key, statBase(key), adj)
+    // L'écart « effective » s'écrit à la volée (avec la base déjà validée) ; la base, elle, passe par le brouillon
+    const setStat = (key) => (e) => { if (draft) { draft.statBase[key] = num(e.target.value, STAT_DEFAULT); render() } }
+    const setAdj = (key, adj) => c.set(`stat:${key}`, adj ? { value: committedBase(key), adj } : { value: committedBase(key) })
     // Jet d'une caractéristique : d20, réussite à sa valeur ou plus (games/grandal/dice.js).
     // Bouton visible pour tous, cliquable par le MJ et le joueur propriétaire seulement (inactif pour les autres)
     const showRoll = !!ctx.onRoll
@@ -401,7 +471,7 @@ export function setupGrandalSheets(ctx) {
       h('div', { class: 'gs-skills' }, SKILL_CATEGORIES.map(({ key, label }) => {
         const k = `skills:${key}`
         const list = get(k, [])
-        const setList = (l) => c.set(k, l)
+        const setList = (l) => setD(k, l)
         const patch = (i, p) => setList(list.map((x, j) => (j === i ? { ...x, ...p } : x)))
         const shown = list.filter((sk) => (sk.name ?? '').trim())
         return h('div', { class: 'gs-skill-group' }, h('h4', {}, label),
@@ -425,33 +495,36 @@ export function setupGrandalSheets(ctx) {
       })))
 
     if (detached()) popup.document.title = `${get('name') || 'Fiche'} — Grandal`
-    // ---- Inventaire : les Gran (monnaie) puis les objets par catégorie, chacune avec son en-tête ----
+    // ---- Inventaire : le MJ et le joueur propriétaire modifient chaque ligne à la volée, sans passer par « Modifier » ----
+    // Chaque ligne s'affiche en lecture ; son bouton ✎ ouvre ses champs (✓ les referme, × supprime la ligne).
+    // Les Gran et les armes sont à côté du tableau des caractéristiques ; le reste de l'inventaire est dessous.
+    const lineOpen = (catKey, i) => editingLines.has(`${catKey}#${i}`)
+    const lineKey = (catKey, i) => `${catKey}#${i}`
+    const openLine = (catKey, i, item) => { lineSnaps.set(lineKey(catKey, i), JSON.stringify(item)); editingLines.add(lineKey(catKey, i)); render() }
+    const closeLine = (catKey, i) => { editingLines.delete(lineKey(catKey, i)); lineSnaps.delete(lineKey(catKey, i)); if (confirmingLine === lineKey(catKey, i)) confirmingLine = null }
+    const clearLines = (catKey) => { for (const k of [...editingLines]) if (k.startsWith(`${catKey}#`)) { editingLines.delete(k); lineSnaps.delete(k) }; confirmingLine = null }
+    // Valeur fixe d'une arme : écrite à la main, ou modificateur d'une caractéristique (suit le tableau en direct)
+    const resolveBonus = (it) => (it.bonusStat && STATS.some((s) => s.key === it.bonusStat) ? modifier(statValue(it.bonusStat)) : Math.round(Number(it.bonus)) || 0)
+    const withBonus = (it) => ({ ...it, bonus: resolveBonus(it) })
+    const statLabel = (key) => STATS.find((s) => s.key === key)?.label ?? key
     // Bouton de jet d'une arme : mêmes règles que ceux des caractéristiques (MJ et propriétaire seulement) ; il faut des dés définis
-    const weaponButton = (it) => {
+    const weaponButton = (raw) => {
+      const it = withBonus(raw)
       const parsed = it.dice ? parseDice(it.dice) : null
       const ok = mayEdit && !!parsed
       return d20Button({
         disabled: !ok,
-        title: !parsed ? 'Aucun jet défini pour cette arme (dés à renseigner en mode « Modifier »)'
+        title: !parsed ? 'Aucun jet défini pour cette arme (dés à renseigner)'
           : ok ? `Jet de ${it.name || 'l’arme'} : ${weaponRoll(it)}` : 'Seuls le MJ et le joueur de cette fiche peuvent lancer ce jet',
         'aria-label': `Lancer le jet de ${it.name || 'l’arme'} (${weaponRoll(it) || 'aucun jet'})`,
         onclick: () => {
           const p = it.dice ? parseDice(it.dice) : null
           if (!p || !canEdit(c)) return
           const [count, faces] = p.split('d').map(Number)
-          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${it.name || 'Arme'}`, count, faces, Math.round(Number(it.bonus)) || 0)
+          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${it.name || 'Arme'}`, count, faces, resolveBonus(raw))
         },
       })
     }
-    // Armes : « Mains nues » d'abord (sur toutes les fiches ; 2d4 + modificateur de Force, mis à jour en direct ; seul le MJ la modifie),
-    // puis les armes de la fiche
-    const unarmed = get('unarmed', {})
-    const forceMod = modifier(statValue('force'))
-    const unarmedItem = { name: 'Mains nues', dice: (unarmed.dice && parseDice(unarmed.dice)) || UNARMED_DICE, bonus: forceMod, desc: unarmed.desc ?? '' }
-    const setUnarmed = (patch) => c.set('unarmed', { ...unarmed, ...patch })
-    const weaponView = (it) => h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'),
-      h('span', { class: 'gs-weapon-right' }, weaponRoll(it) && h('span', { class: 'gs-weapon-dmg', title: 'Jet : dés + valeur fixe' }, weaponRoll(it)), ctx.onRollWeapon && weaponButton(it))),
-    it.desc && h('p', {}, it.desc))
     const diceInput = (current, onValid) => h('input', {
       class: 'gs-dice-input', value: current ?? '', placeholder: '2d6', maxLength: 9, 'aria-label': 'Dés à jeter : nombre de dés et de faces (ex. 2d6)',
       title: 'Nombre de dés et de faces : 2d6, 1d8, d20…',
@@ -461,52 +534,124 @@ export function setupGrandalSheets(ctx) {
         onValid(d)
       },
     })
-    const weaponsGroup = (cat, list, setList) => h('div', { class: 'gs-inv-group gs-inv-weapons' }, h('h4', {}, cat.label),
-      ed && isGM
-        // Mains nues, côté MJ : dés et description modifiables ; le second champ suit la Force et ne se saisit pas
-        ? h('div', { class: 'gs-effect-edit gs-unarmed-edit' },
-          h('span', { class: 'gs-unarmed-name' }, h('b', {}, 'Mains nues'), h('span', { class: 'muted' }, ' · arme de base de toutes les fiches')),
-          h('span', {}),
-          h('div', { class: 'gs-weapon-roll' },
-            diceInput(unarmed.dice ?? UNARMED_DICE, (d) => setUnarmed({ dice: d || UNARMED_DICE })),
-            h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
-            h('span', { class: 'gs-bonus-auto', title: 'Modificateur de Force : se met à jour tout seul' }, signed(forceMod), h('span', { class: 'muted' }, ' (Force)'))),
-          h('textarea', { rows: 2, value: unarmed.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description des mains nues', onchange: (e) => setUnarmed({ desc: e.target.value }) }))
-        : h('ul', {}, weaponView(unarmedItem)),
-      ed
-        ? [...list.map((it, i) => h('div', { class: 'gs-effect-edit' },
-          h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
-          h('button', { class: 'icon', title: 'Retirer l’arme', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
-          // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe ajoutée au résultat
-          h('div', { class: 'gs-weapon-roll' },
-            diceInput(it.dice, (d) => setList(list.map((x, j) => (j === i ? { ...x, dice: d } : x)))),
-            h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
-            h('input', {
-              type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat',
-              title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
-              onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, bonus: num(e.target.value, 0) } : x))),
-            })),
-          h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
-        h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, '+ Arme')]
-        : list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim() || it.dice).length
-          ? h('ul', {}, list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim() || it.dice).map(weaponView))
-          : null)
-    // Équipement et objets : une ligne = un nom + une description
-    const simpleGroup = (cat, list, setList) => {
-      const shown = list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim())
-      return h('div', { class: 'gs-inv-group' }, h('h4', {}, cat.label),
-        ed
-          ? [...list.map((it, i) => h('div', { class: 'gs-effect-edit' },
-            h('input', { value: it.name ?? '', placeholder: `Nom de l’${cat.one}`, 'aria-label': `Nom de l’${cat.one}`, onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
-            h('button', { class: 'icon', title: `Retirer l’${cat.one}`, onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
-            h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description', 'aria-label': `Description de l’${cat.one}`, onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
-          h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, cat.add)]
-          : shown.length
-            ? h('ul', {}, shown.map((it) => h('li', {}, h('b', {}, it.name || cat.label), it.desc && h('p', {}, it.desc))))
-            : h('p', { class: 'muted' }, cat.empty))
+    const patchAt = (list, i, patch) => list.map((x, j) => (j === i ? { ...x, ...patch } : x))
+    // Ligne fermée : ✎ ouvre ses champs. Ligne ouverte : ✓ valide (referme), ↺ annule les changements faits depuis l'ouverture,
+    // × supprime (après confirmation)
+    const pencil = (cat, i, it) => mayEdit && h('button', { class: 'gs-line-btn gs-pencil', title: 'Modifier cette ligne', 'aria-label': 'Modifier cette ligne', onclick: () => openLine(cat.key, i, it) }, '✎')
+    const lineButtons = (cat, i, list, setList) => {
+      const snap = lineSnaps.get(lineKey(cat.key, i))
+      const isNew = snap === NEW_LINE
+      const changed = isNew || (snap !== undefined && JSON.stringify(list[i]) !== snap)
+      return h('span', { class: 'gs-line-btns' },
+        h('button', { class: 'gs-line-btn', title: 'Valider cette ligne et fermer ses champs', 'aria-label': 'Valider cette ligne', onclick: () => { closeLine(cat.key, i); render() } }, '✓'),
+        h('button', {
+          class: 'gs-line-btn', disabled: !changed, 'aria-label': 'Annuler les changements de cette ligne',
+          title: isNew ? 'Annuler : la ligne qui vient d’être ajoutée est retirée' : changed ? 'Annuler les changements faits sur cette ligne' : 'Aucun changement à annuler',
+          onclick: () => {
+            closeLine(cat.key, i)
+            if (isNew) { clearLines(cat.key); setList(list.filter((_, j) => j !== i)) } else setList(list.map((x, j) => (j === i ? JSON.parse(snap) : x)))
+          },
+        }, '↺'),
+        h('button', { class: 'gs-line-btn gs-line-del', title: 'Supprimer cette ligne', 'aria-label': 'Supprimer cette ligne', onclick: () => { confirmingLine = lineKey(cat.key, i); render() } }, '×'))
     }
-    const gran = num(get('gran'), 0)
-    const inventory = h('section', { class: 'gs-sec gs-inventory' }, h('h3', { class: 'gs-sec-title' }, 'Inventaire'),
+    // Confirmation de suppression d'une ligne (dans la ligne, sans boîte du navigateur)
+    const lineConfirm = (cat, i, list, setList) => confirmingLine === lineKey(cat.key, i) && h('div', { class: 'gs-line-confirm', role: 'alertdialog', 'aria-label': 'Confirmer la suppression de la ligne' },
+      h('span', {}, `Supprimer ${(list[i]?.name ?? '').trim() ? `« ${list[i].name} »` : 'cette ligne'} ?`),
+      h('button', { class: 'small', onclick: () => { confirmingLine = null; render() } }, 'Annuler'),
+      h('button', { class: 'small danger', onclick: () => { clearLines(cat.key); setList(list.filter((_, j) => j !== i)) } }, 'Oui, supprimer'))
+    const addLine = (cat, list, setList, blank) => h('button', { class: 'small', onclick: () => { editingLines.add(lineKey(cat.key, list.length)); lineSnaps.set(lineKey(cat.key, list.length), NEW_LINE); setList([...list, blank]) } }, cat.add)
+
+    // Armes : ligne par défaut « Mains nues » (2d4 + modificateur de Force) tant que la liste n'a jamais été modifiée ; ensuite c'est une ligne
+    // comme les autres, modifiable et supprimable
+    const legacyUnarmed = live('unarmed', {})
+    const weaponsList = c.get('inventory:weapons') ?? [{ ...DEFAULT_WEAPON, dice: (legacyUnarmed.dice && parseDice(legacyUnarmed.dice)) || DEFAULT_WEAPON.dice, desc: legacyUnarmed.desc ?? '' }]
+    const weaponRow = (cat, it, i, list, setList) => {
+      if (!lineOpen(cat.key, i)) {
+        const r = withBonus(it)
+        return h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'),
+          h('span', { class: 'gs-weapon-right' }, weaponRoll(r) && h('span', { class: 'gs-weapon-dmg', title: it.bonusStat ? `Jet : dés + modificateur de ${statLabel(it.bonusStat)}` : 'Jet : dés + valeur fixe' }, weaponRoll(r)), ctx.onRollWeapon && weaponButton(it), pencil(cat, i, it))),
+        it.desc && h('p', {}, it.desc))
+      }
+      return h('li', { class: 'gs-line-open' }, h('div', { class: 'gs-effect-edit' },
+        h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => setList(patchAt(list, i, { name: e.target.value })) }),
+        lineButtons(cat, i, list, setList),
+        lineConfirm(cat, i, list, setList),
+        // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe (écrite, ou modificateur d'une caractéristique)
+        h('div', { class: 'gs-weapon-roll' },
+          diceInput(it.dice, (d) => setList(patchAt(list, i, { dice: d }))),
+          h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
+          h('select', {
+            class: 'gs-bonus-source', 'aria-label': 'Valeur ajoutée au résultat : valeur écrite ou modificateur', title: 'Valeur ajoutée au résultat des dés',
+            onchange: (e) => setList(patchAt(list, i, { bonusStat: e.target.value })),
+          },
+          h('option', { value: '', selected: !it.bonusStat }, 'Valeur écrite'),
+          STATS.map((s) => h('option', { value: s.key, selected: s.key === it.bonusStat }, `Mod. ${s.label}`))),
+          it.bonusStat
+            ? h('span', { class: 'gs-bonus-auto', title: `Modificateur de ${statLabel(it.bonusStat)} : se met à jour tout seul` }, signed(resolveBonus(it)))
+            : h('input', {
+              type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat', title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
+              onchange: (e) => setList(patchAt(list, i, { bonus: num(e.target.value, 0) })),
+            }),
+          ctx.onRollWeapon && weaponButton(it)),
+        h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => setList(patchAt(list, i, { desc: e.target.value })) })))
+    }
+    const weaponsGroup = (cat, list, setList) => h('div', { class: 'gs-inv-group gs-inv-weapons' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)),
+      list.length ? h('ul', {}, list.map((it, i) => weaponRow(cat, it, i, list, setList))) : h('p', { class: 'muted' }, 'Aucune'),
+      mayEdit && addLine(cat, list, setList, { name: '', desc: '', dice: '', bonus: 0, bonusStat: '' }))
+
+    // Équipement, objets et sous-sections ajoutées : une ligne = un nom + une description
+    const sections = live('inventory:sections', []) // [{ id, name }] sous-sections ajoutées, entre Équipement et Objets
+    const setSections = (l) => c.set('inventory:sections', l)
+    const simpleRow = (cat, it, i, list, setList) => {
+      if (!lineOpen(cat.key, i)) {
+        return h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || cat.label), pencil(cat, i, it)), it.desc && h('p', {}, it.desc))
+      }
+      return h('li', { class: 'gs-line-open' }, h('div', { class: 'gs-effect-edit' },
+        h('input', { value: it.name ?? '', placeholder: 'Nom', 'aria-label': `Nom (${cat.label})`, onchange: (e) => setList(patchAt(list, i, { name: e.target.value })) }),
+        lineButtons(cat, i, list, setList),
+        lineConfirm(cat, i, list, setList),
+        h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description', 'aria-label': `Description (${cat.label})`, onchange: (e) => setList(patchAt(list, i, { desc: e.target.value })) })))
+    }
+    const simpleGroup = (cat, list, setList, custom) => {
+      const head = custom && mayEdit
+        // Sous-section ajoutée : nom modifiable, suppression avec confirmation (Armes, Équipement et Objets ne se suppriment pas)
+        ? h('div', { class: 'gs-inv-head' },
+          h('input', {
+            class: 'gs-section-name', value: custom.name, maxLength: 40, 'aria-label': 'Nom de la sous-section',
+            onchange: (e) => setSections(sections.map((x) => (x.id === custom.id ? { ...x, name: e.target.value.trim() || x.name } : x))),
+          }),
+          confirmingSection === custom.id
+            ? h('span', { class: 'gs-inv-confirm' },
+              h('span', {}, `Supprimer « ${custom.name} »${list.length ? ` et ses ${list.length} ligne${list.length > 1 ? 's' : ''}` : ''} ?`),
+              h('button', { class: 'small', onclick: () => { confirmingSection = null; render() } }, 'Annuler'),
+              h('button', { class: 'small danger', onclick: () => { confirmingSection = null; clearLines(cat.key); ctx.doc.transact(() => { setSections(sections.filter((x) => x.id !== custom.id)); c.delete(`inventory:custom:${custom.id}`) }) } }, 'Oui, supprimer'))
+            : h('button', { class: 'small danger', title: 'Supprimer cette sous-section', onclick: () => { confirmingSection = custom.id; render() } }, 'Supprimer'))
+        : h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label))
+      return h('div', { class: 'gs-inv-group' }, head,
+        list.length ? h('ul', {}, list.map((it, i) => simpleRow(cat, it, i, list, setList))) : h('p', { class: 'muted' }, cat.empty),
+        mayEdit && addLine(cat, list, setList, { name: '', desc: '' }))
+    }
+    const categories = [
+      ...INVENTORY_CATEGORIES.slice(0, 2),
+      ...sections.map((sec) => ({ key: `custom:${sec.id}`, label: sec.name, kind: 'simple', add: '+ Ligne', empty: 'Aucune ligne', custom: sec })),
+      ...INVENTORY_CATEGORIES.slice(2),
+    ]
+    const addSection = () => {
+      const input = sheetEl.querySelector('.gs-add-section input')
+      const name = (input?.value ?? '').trim()
+      if (!name) { input?.focus(); return }
+      setSections([...sections, { id: crypto.randomUUID().slice(0, 8), name }])
+    }
+    const groupOf = (cat) => {
+      const k = `inventory:${cat.key}`
+      const list = cat.kind === 'weapon' ? weaponsList : live(k, [])
+      const setList = (l) => c.set(k, l)
+      return cat.kind === 'weapon' ? weaponsGroup(cat, list, setList) : simpleGroup(cat, list, setList, cat.custom)
+    }
+
+    const gran = num(live('gran'), 0)
+    // À côté des caractéristiques : les Gran et les armes
+    const inventory = h('section', { class: 'gs-sec gs-inventory' },
       h('div', { class: 'gs-gran', title: 'Gran : la monnaie' },
         h('span', { class: 'gran-logo', 'aria-hidden': 'true' }, 'G'),
         h('span', { class: 'gs-gran-label' }, 'Gran'),
@@ -518,19 +663,33 @@ export function setupGrandalSheets(ctx) {
             onchange: (e) => c.set('gran', Math.max(0, num(e.target.value, 0))),
           })
           : h('b', { class: 'gs-gran-value' }, gran)),
-      h('div', { class: 'gs-inv-groups' }, INVENTORY_CATEGORIES.map((cat) => {
-        const k = `inventory:${cat.key}`
-        const list = get(k, [])
-        const setList = (l) => c.set(k, l)
-        return cat.kind === 'weapon' ? weaponsGroup(cat, list, setList) : simpleGroup(cat, list, setList)
-      })))
+      groupOf(INVENTORY_CATEGORIES[0]))
+    // Dessous : équipement, sous-sections ajoutées (entre Équipement et Objets) et objets
+    const inventoryRest = h('section', { class: 'gs-sec gs-inventory-rest' }, h('h3', { class: 'gs-sec-title' }, 'Inventaire'),
+      h('div', { class: 'gs-inv-groups' }, categories.filter((cat) => cat.kind !== 'weapon').map(groupOf)),
+      // Nouvelle sous-section (MJ et joueur propriétaire)
+      mayEdit && h('div', { class: 'gs-add-section' },
+        h('input', { placeholder: 'Nom d’une nouvelle sous-section', maxLength: 40, 'aria-label': 'Nom de la nouvelle sous-section', onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); addSection() } } }),
+        h('button', { class: 'small', title: 'Ajouter une sous-section à l’inventaire, entre Équipement et Objets', onclick: addSection }, '+ Sous-section')))
+
+    // Fenêtre de confirmation : quitter la fiche avec des modifications non validées (ancrée en haut, couvre la partie visible)
+    const modal = pendingDiscard && h('div', { class: 'gs-modal-anchor' },
+      h('div', { class: 'gs-modal', style: `height:${sheetEl.clientHeight}px` },
+        h('div', { class: 'gs-modal-card', role: 'alertdialog', 'aria-label': 'Modifications non validées' },
+          h('h3', {}, 'Modifications non validées'),
+          h('p', {}, 'Des modifications n’ont pas été validées avec « Terminer ». Si vous quittez maintenant, elles seront perdues.'),
+          h('div', { class: 'gs-modal-actions' },
+            h('button', { onclick: () => { pendingDiscard = null; render() } }, 'Revenir à la fiche'),
+            h('button', { class: 'danger', onclick: () => { const t = pendingDiscard; endDraft(); t?.() } }, 'Quitter sans enregistrer')))))
 
     sheetEl.append(...[
+      modal,
       h('header', { class: 'gs-head' }, portrait, identity, actions),
       gmTools,
-      statusUi.sheet(openId, { canEdit: mayEdit, ed }),
-      // Caractéristiques et inventaire côte à côte, puis les effets sur toute la largeur
+      statusUi.sheet(openId, { canEdit: mayEdit, ed, draft: draft && { status: draft.status, touch: render } }),
+      // Caractéristiques à côté des Gran et des armes ; le reste de l'inventaire dessous ; puis les effets sur toute la largeur
       h('div', { class: 'gs-body' }, statsTable, inventory),
+      inventoryRest,
       h('div', { class: 'gs-effects-sec' }, effects),
       skills,
       !mayEdit && h('p', { class: 'readonly-note' }, owner ? `Lecture seule : fiche de ${owner}` : 'Lecture seule'),
@@ -542,7 +701,7 @@ export function setupGrandalSheets(ctx) {
         const file = input.files[0]
         if (!file) return
         try {
-          portraits.set(openId, await shrink(file))
+          if (draft) { draft.portrait = await shrink(file); render() }
         } catch {
           alert('Image illisible.')
         }
@@ -562,10 +721,10 @@ export function setupGrandalSheets(ctx) {
   return {
     open(id) { if (id !== openId) open(id) },
     /** Vignette Aventuriers : ouvre la fiche, ou la ferme si c'est déjà celle qui est ouverte */
-    toggle(id) { if (id === openId) close(); else open(id) },
-    close() { if (openId) close() },
+    toggle(id) { if (id === openId) askLeave(closeNow); else open(id) },
+    close() { if (openId) askLeave(closeNow) },
     /** Ferme la fiche sauf si elle est détachée (changer d'onglet ne la ferme pas) */
-    closeDocked() { if (openId && !detached()) close() },
+    closeDocked() { if (openId && !detached()) askLeave(closeNow) },
     create,
     /** À appeler quand le profil, le rôle ou la liste des profils change */
     rerender() { if (openId) render() },

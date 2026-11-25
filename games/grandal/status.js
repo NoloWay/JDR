@@ -68,7 +68,7 @@ export function setupStatus(doc) {
   const ssSpend = (id) => { const s = ssAll(id).find((x) => x.cur > 0); if (s) setCur(id, s.res, s.cur - 1) }
   const ssRestore = (id) => { const s = ssAll(id).reverse().find((x) => x.cur < x.max); if (s) setCur(id, s.res, s.cur + 1) }
 
-  return { status, extra, setExtra, addExtra, spendEp, restoreEp, read, setCur, setMax, spd, setSpdBase, setSpdAdj, togglePip, ssAll, ssTotal, ssSpend, ssRestore }
+  return { status, raw, putRaw: put, extra, setExtra, addExtra, spendEp, restoreEp, read, setCur, setMax, spd, setSpdBase, setSpdAdj, togglePip, ssAll, ssTotal, ssSpend, ssRestore }
 }
 
 // ---------- Éléments d'affichage ----------
@@ -116,8 +116,11 @@ export function statusViews(st) {
   const curInput = (id, res, v) => num(v.cur, (n) => st.setCur(id, res, n), { min: res === RES.hp ? -v.max : 0, 'aria-label': `${res.label} : valeur courante` })
 
   // Vitesse : base (grisée) + valeur effective, ajustable à la volée comme dans le tableau des caractéristiques
-  function spdControl(id, canEdit, { withBase = true } = {}) {
-    const { base, adj, eff } = st.spd(id)
+  function spdControl(id, canEdit, { withBase = true, base: baseOverride } = {}) {
+    const s0 = st.spd(id)
+    const base = baseOverride ?? s0.base
+    const adj = s0.adj
+    const eff = base + adj
     return h('span', { class: `st-spd${adj > 0 ? ' up' : adj < 0 ? ' down' : ''}`, title: adj ? `Base ${base} ${adj > 0 ? '+' : '−'} ${Math.abs(adj)}` : 'Vitesse effective = vitesse de base' },
       withBase && h('span', { class: 'st-spd-base', title: 'Vitesse de base' }, `Base ${base}`),
       canEdit
@@ -129,46 +132,62 @@ export function statusViews(st) {
         : h('b', { class: 'st-spd-eff' }, eff))
   }
 
-  /** Section « Statut » complète de la fiche. ed = fiche en modification (maximums et vitesse de base modifiables) */
-  function sheet(id, { canEdit, ed }) {
-    const hp = st.read(id, RES.hp)
-    const mp = st.read(id, RES.mp)
+  /**
+   * Section « Statut » complète de la fiche. ed = fiche en modification (maximums et vitesse de base modifiables).
+   * draft = { status, touch() } : brouillon de la fiche ; en modification, les maximums et la vitesse de base y sont écrits
+   * (`status` : clé → nombre) au lieu d'aller dans le Y.Doc, et ne sont appliqués qu'au clic sur « Terminer ».
+   */
+  function sheet(id, { canEdit, ed, draft }) {
+    const ov = ed && draft ? draft.status : null
+    // Lecture avec le brouillon : un maximum modifié s'applique tout de suite à l'affichage
+    const rd = (res) => {
+      const max = ov && res.max in ov ? ov[res.max] : st.read(id, res).max
+      const rawCur = st.raw(id, res.key)
+      return { cur: Math.max(res === RES.hp ? -max : 0, Math.min(rawCur ?? max, max)), max }
+    }
+    const setMaxD = (res, n) => { if (ov) { if (Number.isFinite(n)) { ov[res.max] = Math.max(0, Math.round(n)); draft.touch() } } else st.setMax(id, res, n) }
+    const hp = rd(RES.hp)
+    const mp = rd(RES.mp)
     const bar = (res, v, cls) => h('div', { class: `st-block st-block-${cls}` },
       h('div', { class: 'st-head' }, h('h4', { title: res.title }, res.label),
         canEdit && h('span', { class: 'st-edit' },
           curInput(id, res, v), h('span', { class: 'muted' }, '/'),
-          ed ? num(v.max, (n) => st.setMax(id, res, n), { 'aria-label': `${res.label} : maximum` }) : h('b', { title: 'Le maximum se modifie avec le bouton « Modifier » de la fiche' }, v.max))),
+          ed ? num(v.max, (n) => setMaxD(res, n), { 'aria-label': `${res.label} : maximum` }) : h('b', { title: 'Le maximum se modifie avec le bouton « Modifier » de la fiche' }, v.max))),
       gauge(res, v.cur, v.max, 'big'))
     const pool = (res, cls) => {
-      const v = st.read(id, res)
+      const v = rd(res)
       const extra = res === RES.ep ? st.extra(id) : 0
       return h('div', { class: `st-block st-block-${cls}` },
         h('div', { class: 'st-head' }, h('h4', { title: res.title }, res.label),
           h('span', { class: 'st-count' }, `${v.cur} / ${v.max}${extra ? ` + ${extra}` : ''}`),
           res === RES.ep && canEdit && h('button', { class: 'small st-add', title: 'Ajouter un EP supplémentaire (au-delà du maximum)', onclick: () => st.addExtra(id) }, '+ EP'),
-          ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(v.max, (n) => st.setMax(id, res, n), { 'aria-label': `${res.label} : maximum` }))),
+          ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(v.max, (n) => setMaxD(res, n), { 'aria-label': `${res.label} : maximum` }))),
         pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, extra - 1))))
     }
     const spd = st.spd(id)
+    const spdBase = ov && 'spd' in ov ? ov.spd : spd.base
+    const setSpdBaseD = (n) => { if (ov) { if (Number.isFinite(n)) { ov.spd = Math.max(0, Math.round(n)); draft.touch() } } else st.setSpdBase(id, n) }
     return h('section', { class: 'gs-sec gs-status' }, h('h3', { class: 'gs-sec-title' }, 'Statut'),
       h('div', { class: 'st-grid' },
         bar(RES.hp, hp, 'hp'),
         bar(RES.mp, mp, 'mp'),
         h('div', { class: 'st-block st-block-spd' },
           h('div', { class: 'st-head' }, h('h4', { title: 'Vitesse' }, 'SPD'),
-            ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'base'), num(spd.base, (n) => st.setSpdBase(id, n), { 'aria-label': 'SPD : vitesse de base' }))),
-          spdControl(id, canEdit)),
+            ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'base'), num(spdBase, (n) => setSpdBaseD(n), { 'aria-label': 'SPD : vitesse de base' }))),
+          spdControl(id, canEdit, { base: spdBase })),
         pool(RES.ep, 'ep'),
         pool(RES.sp, 'sp')),
       // Emplacements de sorts : une ligne par niveau, de 1 à 10
       h('div', { class: 'st-block st-block-ss' },
         h('div', { class: 'st-head' }, h('h4', { title: 'Emplacements de sorts' }, 'SS')),
-        h('div', { class: 'st-ss-lines' }, st.ssAll(id).map(({ n, res, cur, max }) =>
-          h('div', { class: 'st-ss-line' },
+        h('div', { class: 'st-ss-lines' }, st.ssAll(id).map(({ n, res }) => {
+          const { cur, max } = rd(res)
+          return h('div', { class: 'st-ss-line' },
             h('span', { class: 'st-ss-level' }, `Niv. ${n}`),
             pips(res, cur, max, canEdit && ((i) => st.togglePip(id, res, i))),
             h('span', { class: 'st-count' }, max ? `${cur} / ${max}` : ''),
-            ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(max, (v) => st.setMax(id, res, v), { 'aria-label': `SS niveau ${n} : maximum` })))))))
+            ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(max, (v) => setMaxD(res, v), { 'aria-label': `SS niveau ${n} : maximum` })))
+        }))))
   }
 
   /** Vignette de l'onglet Fiches : tout le statut sauf HP et MP (déjà là, avec leurs champs) */
