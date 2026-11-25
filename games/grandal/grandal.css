@@ -591,7 +591,8 @@ button.st-chip:hover { border-color: var(--accent); }
 .st-grid > .st-block-hp, .st-grid > .st-block-mp, .st-grid > .st-block-spd { grid-column: span 2; }
 .st-grid > .st-block-ep, .st-grid > .st-block-sp { grid-column: span 3; }
 .gs-effects, .gs-skills { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.gs-effects > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* Effets passifs : « Temporaires » (premier) sur toute la largeur, les quatre autres par deux */
+.gs-effects > :first-child { grid-column: 1 / -1; }
 /* Compétences : « Générales » (première) sur toute la largeur, les six autres par deux */
 .gs-skills > :first-child { grid-column: 1 / -1; }
 @container (max-width: 720px) {
@@ -704,3 +705,11 @@ input[type='number']::-webkit-inner-spin-button {
 input[type='number']::-webkit-inner-spin-button:hover {
   background: rgba(217, 164, 65, 0.22) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 24'%3E%3Cpath d='M8 5 12.5 10.5h-9z M8 19 3.5 13.5h9z' fill='%23ffe08a'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
+
+/* Inventaire : Armes sur toute la largeur, Équipement et Objets côte à côte ; ligne « Mains nues » */
+.gs-inv-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.gs-inv-groups > .gs-inv-weapons { grid-column: 1 / -1; }
+@container (max-width: 520px) { .gs-inv-groups { grid-template-columns: 1fr; } }
+.gs-inv-weapons ul { margin-bottom: 10px; }
+.gs-unarmed-edit { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px dashed rgba(74, 56, 36, 0.8); }
+.gs-bonus-auto { display: inline-flex; align-items: baseline; gap: 2px; min-width: 70px; justify-content: center; padding: 4px 8px; font-family: var(--display); font-weight: 700; color: #f0cc6a; background: rgba(0, 0, 0, 0.25); border: 1px dashed rgba(217, 164, 65, 0.4); border-radius: 3px; font-variant-numeric: tabular-nums; }

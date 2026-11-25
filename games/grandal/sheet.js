@@ -10,6 +10,9 @@
 //                                    modificateur calculé sur la valeur effective (modifier), jamais stocké (un ancien champ mod est ignoré)
 //   gran                             nombre de Gran (la monnaie), entier ≥ 0
 //   inventory:weapons                [{ name, desc, dice, bonus }] armes (INVENTORY_CATEGORIES) ; dice = « 2d6 » (nombre de dés + faces), bonus = valeur fixe ajoutée
+//   inventory:equipment | inventory:items   [{ name, desc }] équipement et objets
+//   unarmed                          { dice, desc } facultatif : surcharges (MJ seul) de la ligne « Mains nues », présente sur toutes les fiches
+//                                    (2d4 par défaut, bonus = modificateur de Force, jamais stocké)
 //   skills:<catégorie>               [{ name, level }] compétences (SKILL_CATEGORIES), level = connaissance | expertise | maitrise ;
 //                                    le bonus (+1 / +2 / +3) se déduit du niveau, jamais stocké
 //   player                           joueur propriétaire (profil joueur, choisi par le MJ)
@@ -61,8 +64,11 @@ export const SKILL_LEVELS = [
 const skillLevel = (key) => SKILL_LEVELS.find((l) => l.key === key) ?? SKILL_LEVELS[0]
 // Inventaire : catégories d'objets (pour l'instant les armes seulement ; chacune a son en-tête)
 export const INVENTORY_CATEGORIES = [
-  { key: 'weapons', label: 'Armes' },
+  { key: 'weapons', label: 'Armes', kind: 'weapon' },
+  { key: 'equipment', label: 'Équipement', kind: 'simple', one: 'équipement', add: '+ Équipement', empty: 'Aucun' },
+  { key: 'items', label: 'Objets', kind: 'simple', one: 'objet', add: '+ Objet', empty: 'Aucun' },
 ]
+export const UNARMED_DICE = '2d4' // « Mains nues » : ligne par défaut de toutes les fiches, bonus = modificateur de Force
 /** « 2d6 », « D8 », « 3 d 10 » → « 2d6 », « 1d8 », « 3d10 » ; null si ce n'est pas un jet de dés valide (au moins 1 dé, 2 faces) */
 export function parseDice(text) {
   const m = /^\s*(\d*)\s*d\s*(\d+)\s*$/i.exec(String(text))
@@ -437,6 +443,68 @@ export function setupGrandalSheets(ctx) {
         },
       })
     }
+    // Armes : « Mains nues » d'abord (sur toutes les fiches ; 2d4 + modificateur de Force, mis à jour en direct ; seul le MJ la modifie),
+    // puis les armes de la fiche
+    const unarmed = get('unarmed', {})
+    const forceMod = modifier(statValue('force'))
+    const unarmedItem = { name: 'Mains nues', dice: (unarmed.dice && parseDice(unarmed.dice)) || UNARMED_DICE, bonus: forceMod, desc: unarmed.desc ?? '' }
+    const setUnarmed = (patch) => c.set('unarmed', { ...unarmed, ...patch })
+    const weaponView = (it) => h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'),
+      h('span', { class: 'gs-weapon-right' }, weaponRoll(it) && h('span', { class: 'gs-weapon-dmg', title: 'Jet : dés + valeur fixe' }, weaponRoll(it)), ctx.onRollWeapon && weaponButton(it))),
+    it.desc && h('p', {}, it.desc))
+    const diceInput = (current, onValid) => h('input', {
+      class: 'gs-dice-input', value: current ?? '', placeholder: '2d6', maxLength: 9, 'aria-label': 'Dés à jeter : nombre de dés et de faces (ex. 2d6)',
+      title: 'Nombre de dés et de faces : 2d6, 1d8, d20…',
+      onchange: (e) => {
+        const d = e.target.value.trim() === '' ? '' : parseDice(e.target.value)
+        if (d === null) { e.target.value = current ?? ''; return } // format invalide : on garde l'ancienne valeur
+        onValid(d)
+      },
+    })
+    const weaponsGroup = (cat, list, setList) => h('div', { class: 'gs-inv-group gs-inv-weapons' }, h('h4', {}, cat.label),
+      ed && isGM
+        // Mains nues, côté MJ : dés et description modifiables ; le second champ suit la Force et ne se saisit pas
+        ? h('div', { class: 'gs-effect-edit gs-unarmed-edit' },
+          h('span', { class: 'gs-unarmed-name' }, h('b', {}, 'Mains nues'), h('span', { class: 'muted' }, ' · arme de base de toutes les fiches')),
+          h('span', {}),
+          h('div', { class: 'gs-weapon-roll' },
+            diceInput(unarmed.dice ?? UNARMED_DICE, (d) => setUnarmed({ dice: d || UNARMED_DICE })),
+            h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
+            h('span', { class: 'gs-bonus-auto', title: 'Modificateur de Force : se met à jour tout seul' }, signed(forceMod), h('span', { class: 'muted' }, ' (Force)'))),
+          h('textarea', { rows: 2, value: unarmed.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description des mains nues', onchange: (e) => setUnarmed({ desc: e.target.value }) }))
+        : h('ul', {}, weaponView(unarmedItem)),
+      ed
+        ? [...list.map((it, i) => h('div', { class: 'gs-effect-edit' },
+          h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
+          h('button', { class: 'icon', title: 'Retirer l’arme', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
+          // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe ajoutée au résultat
+          h('div', { class: 'gs-weapon-roll' },
+            diceInput(it.dice, (d) => setList(list.map((x, j) => (j === i ? { ...x, dice: d } : x)))),
+            h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
+            h('input', {
+              type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat',
+              title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
+              onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, bonus: num(e.target.value, 0) } : x))),
+            })),
+          h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
+        h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, '+ Arme')]
+        : list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim() || it.dice).length
+          ? h('ul', {}, list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim() || it.dice).map(weaponView))
+          : null)
+    // Équipement et objets : une ligne = un nom + une description
+    const simpleGroup = (cat, list, setList) => {
+      const shown = list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim())
+      return h('div', { class: 'gs-inv-group' }, h('h4', {}, cat.label),
+        ed
+          ? [...list.map((it, i) => h('div', { class: 'gs-effect-edit' },
+            h('input', { value: it.name ?? '', placeholder: `Nom de l’${cat.one}`, 'aria-label': `Nom de l’${cat.one}`, onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
+            h('button', { class: 'icon', title: `Retirer l’${cat.one}`, onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
+            h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description', 'aria-label': `Description de l’${cat.one}`, onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
+          h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, cat.add)]
+          : shown.length
+            ? h('ul', {}, shown.map((it) => h('li', {}, h('b', {}, it.name || cat.label), it.desc && h('p', {}, it.desc))))
+            : h('p', { class: 'muted' }, cat.empty))
+    }
     const gran = num(get('gran'), 0)
     const inventory = h('section', { class: 'gs-sec gs-inventory' }, h('h3', { class: 'gs-sec-title' }, 'Inventaire'),
       h('div', { class: 'gs-gran', title: 'Gran : la monnaie' },
@@ -450,39 +518,12 @@ export function setupGrandalSheets(ctx) {
             onchange: (e) => c.set('gran', Math.max(0, num(e.target.value, 0))),
           })
           : h('b', { class: 'gs-gran-value' }, gran)),
-      INVENTORY_CATEGORIES.map(({ key, label }) => {
-        const k = `inventory:${key}`
+      h('div', { class: 'gs-inv-groups' }, INVENTORY_CATEGORIES.map((cat) => {
+        const k = `inventory:${cat.key}`
         const list = get(k, [])
         const setList = (l) => c.set(k, l)
-        const shown = list.filter((it) => (it.name ?? '').trim() || (it.desc ?? '').trim())
-        return h('div', { class: 'gs-inv-group' }, h('h4', {}, label),
-          ed
-            ? [...list.map((it, i) => h('div', { class: 'gs-effect-edit' },
-              h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
-              h('button', { class: 'icon', title: 'Retirer l’arme', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
-              // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe ajoutée au résultat
-              h('div', { class: 'gs-weapon-roll' },
-                h('input', {
-                  class: 'gs-dice-input', value: it.dice ?? '', placeholder: '2d6', maxLength: 9, 'aria-label': 'Dés à jeter : nombre de dés et de faces (ex. 2d6)',
-                  title: 'Nombre de dés et de faces : 2d6, 1d8, d20…',
-                  onchange: (e) => {
-                    const d = e.target.value.trim() === '' ? '' : parseDice(e.target.value)
-                    if (d === null) { e.target.value = it.dice ?? ''; return } // format invalide : on garde l'ancienne valeur
-                    setList(list.map((x, j) => (j === i ? { ...x, dice: d } : x)))
-                  },
-                }),
-                h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
-                h('input', {
-                  type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat',
-                  title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
-                  onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, bonus: num(e.target.value, 0) } : x))),
-                })),
-              h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
-            h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, '+ Arme')]
-            : shown.length
-              ? h('ul', {}, shown.map((it) => h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'), h('span', { class: 'gs-weapon-right' }, weaponRoll(it) && h('span', { class: 'gs-weapon-dmg', title: 'Jet : dés + valeur fixe' }, weaponRoll(it)), ctx.onRollWeapon && weaponButton(it))), it.desc && h('p', {}, it.desc))))
-              : h('p', { class: 'muted' }, 'Aucune'))
-      }))
+        return cat.kind === 'weapon' ? weaponsGroup(cat, list, setList) : simpleGroup(cat, list, setList)
+      })))
 
     sheetEl.append(...[
       h('header', { class: 'gs-head' }, portrait, identity, actions),
