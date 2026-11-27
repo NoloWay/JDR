@@ -154,6 +154,7 @@ export function setupGrandalSheets(ctx) {
   //   statBase : valeurs de base des caractéristiques (clé → nombre) ; l'écart « effective » reste modifiable à la volée
   //   portrait : undefined = inchangé, null = retiré, { type, data } = nouvelle image
   //   status   : maximums et vitesse de base du statut (clé → nombre)
+  //   removedSections : id des sous-sections d'inventaire supprimées (appliqué par « Terminer »)
   // null = fiche en consultation. L'inventaire, les Gran, l'écart des caractéristiques et le statut courant s'écrivent à la volée.
   let draft = null
   let pendingDiscard = null // action à lancer si on abandonne des modifications non validées (fenêtre de confirmation)
@@ -219,7 +220,7 @@ export function setupGrandalSheets(ctx) {
   addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = '' } }) // fermeture de la page avec des modifications non validées
   addEventListener('pagehide', () => { if (detached()) popup.close() }) // la page principale se ferme : la fenêtre aussi
 
-  const dirty = () => !!draft && (Object.keys(draft.values).length > 0 || Object.keys(draft.statBase).length > 0 || draft.portrait !== undefined || Object.keys(draft.status).length > 0)
+  const dirty = () => !!draft && (Object.keys(draft.values).length > 0 || Object.keys(draft.statBase).length > 0 || draft.portrait !== undefined || Object.keys(draft.status).length > 0 || draft.removedSections.length > 0)
   // Image du brouillon (adresse libérée quand le brouillon se termine)
   let draftUrl = null
   const draftPortraitUrl = (p) => {
@@ -229,6 +230,7 @@ export function setupGrandalSheets(ctx) {
   function endDraft() {
     draft = null
     pendingDiscard = null
+    confirmingSection = null
     if (draftUrl) { URL.revokeObjectURL(draftUrl.url); draftUrl = null }
   }
   /** Lance `then` tout de suite, ou après confirmation si des modifications ne sont pas validées */
@@ -258,7 +260,7 @@ export function setupGrandalSheets(ctx) {
     render()
     if (detached()) popup.focus() // la fiche détachée affiche la dernière fiche ouverte
   }
-  function startEdit() { draft = { values: {}, statBase: {}, portrait: undefined, status: {} }; confirmingDelete = false; render() }
+  function startEdit() { draft = { values: {}, statBase: {}, portrait: undefined, status: {}, removedSections: [] }; confirmingDelete = false; render() }
   function cancelEdit() { endDraft(); confirmingDelete = false; render() }
   /** « Terminer » : applique tout le brouillon d'un coup */
   function commit() {
@@ -274,6 +276,11 @@ export function setupGrandalSheets(ctx) {
       if (d.portrait === null) portraits.delete(openId)
       else if (d.portrait) portraits.set(openId, d.portrait)
       for (const [k, n] of Object.entries(d.status)) st.putRaw(openId, k, n)
+      if (d.removedSections.length) {
+        // Liste relue au moment de valider : les sous-sections ajoutées ou renommées entre-temps sont conservées
+        c.set('inventory:sections', (c.get('inventory:sections') ?? []).filter((x) => !d.removedSections.includes(x.id)))
+        for (const id of d.removedSections) c.delete(`inventory:custom:${id}`)
+      }
     })
     endDraft()
     confirmingDelete = false
@@ -598,7 +605,7 @@ export function setupGrandalSheets(ctx) {
       mayEdit && addLine(cat, list, setList, { name: '', desc: '', dice: '', bonus: 0, bonusStat: '' }))
 
     // Équipement, objets et sous-sections ajoutées : une ligne = un nom + une description
-    const sections = live('inventory:sections', []) // [{ id, name }] sous-sections ajoutées, entre Équipement et Objets
+    const sections = live('inventory:sections', []) // [{ id, name }] sous-sections ajoutées, affichées dans la catégorie Objets
     const setSections = (l) => c.set('inventory:sections', l)
     const simpleRow = (cat, it, i, list, setList) => {
       if (!lineOpen(cat.key, i)) {
@@ -610,41 +617,46 @@ export function setupGrandalSheets(ctx) {
         lineConfirm(cat, i, list, setList),
         h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description', 'aria-label': `Description (${cat.label})`, onchange: (e) => setList(patchAt(list, i, { desc: e.target.value })) })))
     }
-    const simpleGroup = (cat, list, setList, custom) => {
-      const head = custom && mayEdit
-        // Sous-section ajoutée : nom modifiable, suppression avec confirmation (Armes, Équipement et Objets ne se suppriment pas)
-        ? h('div', { class: 'gs-inv-head' },
-          h('input', {
-            class: 'gs-section-name', value: custom.name, maxLength: 40, 'aria-label': 'Nom de la sous-section',
-            onchange: (e) => setSections(sections.map((x) => (x.id === custom.id ? { ...x, name: e.target.value.trim() || x.name } : x))),
-          }),
-          confirmingSection === custom.id
-            ? h('span', { class: 'gs-inv-confirm' },
-              h('span', {}, `Supprimer « ${custom.name} »${list.length ? ` et ses ${list.length} ligne${list.length > 1 ? 's' : ''}` : ''} ?`),
-              h('button', { class: 'small', onclick: () => { confirmingSection = null; render() } }, 'Annuler'),
-              h('button', { class: 'small danger', onclick: () => { confirmingSection = null; clearLines(cat.key); ctx.doc.transact(() => { setSections(sections.filter((x) => x.id !== custom.id)); c.delete(`inventory:custom:${custom.id}`) }) } }, 'Oui, supprimer'))
-            : h('button', { class: 'small danger', title: 'Supprimer cette sous-section', onclick: () => { confirmingSection = custom.id; render() } }, 'Supprimer'))
-        : h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label))
-      return h('div', { class: 'gs-inv-group' }, head,
-        list.length ? h('ul', {}, list.map((it, i) => simpleRow(cat, it, i, list, setList))) : h('p', { class: 'muted' }, cat.empty),
-        mayEdit && addLine(cat, list, setList, { name: '', desc: '' }))
-    }
-    const categories = [
-      ...INVENTORY_CATEGORIES.slice(0, 2),
-      ...sections.map((sec) => ({ key: `custom:${sec.id}`, label: sec.name, kind: 'simple', add: '+ Ligne', empty: 'Aucune ligne', custom: sec })),
-      ...INVENTORY_CATEGORIES.slice(2),
-    ]
+    // En-tête d'une sous-section ajoutée : nom modifiable à la volée ; « Supprimer » seulement en mode « Modifier » (avec
+    // confirmation), appliqué au clic sur « Terminer ». Armes, Équipement et Objets ne se suppriment pas.
+    const subHead = (cat, list, custom) => h('div', { class: 'gs-inv-head' },
+      mayEdit
+        ? h('input', {
+          class: 'gs-section-name', value: custom.name, maxLength: 40, 'aria-label': 'Nom de la sous-section',
+          onchange: (e) => setSections(sections.map((x) => (x.id === custom.id ? { ...x, name: e.target.value.trim() || x.name } : x))),
+        })
+        : h('h5', {}, custom.name),
+      ed && (confirmingSection === custom.id
+        ? h('span', { class: 'gs-inv-confirm' },
+          h('span', {}, `Supprimer « ${custom.name} »${list.length > 1 ? ` et ses ${list.length} lignes` : list.length ? ' et sa ligne' : ''} ?`),
+          h('button', { class: 'small', onclick: () => { confirmingSection = null; render() } }, 'Annuler'),
+          h('button', { class: 'small danger', onclick: () => { confirmingSection = null; clearLines(cat.key); draft.removedSections.push(custom.id); render() } }, 'Oui, supprimer'))
+        : h('button', { class: 'small danger', title: 'Supprimer cette sous-section (appliqué avec « Terminer »)', onclick: () => { confirmingSection = custom.id; render() } }, 'Supprimer')))
+    const groupLines = (cat, list, setList) => [
+      list.length ? h('ul', {}, list.map((it, i) => simpleRow(cat, it, i, list, setList))) : h('p', { class: 'muted' }, cat.empty),
+      mayEdit && addLine(cat, list, setList, { name: '', desc: '' }),
+    ].filter(Boolean)
     const addSection = () => {
       const input = sheetEl.querySelector('.gs-add-section input')
       const name = (input?.value ?? '').trim()
       if (!name) { input?.focus(); return }
       setSections([...sections, { id: crypto.randomUUID().slice(0, 8), name }])
     }
-    const groupOf = (cat) => {
-      const k = `inventory:${cat.key}`
-      const list = cat.kind === 'weapon' ? weaponsList : live(k, [])
-      const setList = (l) => c.set(k, l)
-      return cat.kind === 'weapon' ? weaponsGroup(cat, list, setList) : simpleGroup(cat, list, setList, cat.custom)
+    const listOf = (key) => ({ list: live(`inventory:${key}`, []), setList: (l) => c.set(`inventory:${key}`, l) })
+    // Les sous-sections ajoutées s'affichent dans la catégorie Objets, sous ses propres lignes
+    const subSections = () => sections.filter((sec) => !(ed && draft.removedSections.includes(sec.id))).map((sec) => {
+      const cat = { key: `custom:${sec.id}`, label: sec.name, kind: 'simple', add: '+ Ligne', empty: 'Aucune ligne' }
+      const { list, setList } = listOf(cat.key)
+      return h('div', { class: 'gs-inv-sub' }, subHead(cat, list, sec), groupLines(cat, list, setList))
+    })
+    const simpleGroup = (cat) => {
+      const { list, setList } = listOf(cat.key)
+      return h('div', { class: 'gs-inv-group' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)), groupLines(cat, list, setList),
+        cat.key === 'items' && subSections(),
+        // Nouvelle sous-section (MJ et joueur propriétaire)
+        cat.key === 'items' && mayEdit && h('div', { class: 'gs-add-section' },
+          h('input', { placeholder: 'Nom d’une nouvelle sous-section', maxLength: 40, 'aria-label': 'Nom de la nouvelle sous-section', onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); addSection() } } }),
+          h('button', { class: 'small', title: 'Ajouter une sous-section dans la catégorie Objets', onclick: addSection }, '+ Sous-section')))
     }
 
     const gran = num(live('gran'), 0)
@@ -660,14 +672,10 @@ export function setupGrandalSheets(ctx) {
             onchange: (e) => c.set('gran', Math.max(0, num(e.target.value, 0))),
           })
           : h('b', { class: 'gs-gran-value' }, gran)),
-      groupOf(INVENTORY_CATEGORIES[0]))
-    // Dessous : équipement, sous-sections ajoutées (entre Équipement et Objets) et objets
+      weaponsGroup(INVENTORY_CATEGORIES[0], weaponsList, (l) => c.set('inventory:weapons', l)))
+    // Dessous : Équipement et Objets (qui contient les sous-sections ajoutées)
     const inventoryRest = h('section', { class: 'gs-sec gs-inventory-rest' }, h('h3', { class: 'gs-sec-title' }, 'Inventaire'),
-      h('div', { class: 'gs-inv-groups' }, categories.filter((cat) => cat.kind !== 'weapon').map(groupOf)),
-      // Nouvelle sous-section (MJ et joueur propriétaire)
-      mayEdit && h('div', { class: 'gs-add-section' },
-        h('input', { placeholder: 'Nom d’une nouvelle sous-section', maxLength: 40, 'aria-label': 'Nom de la nouvelle sous-section', onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); addSection() } } }),
-        h('button', { class: 'small', title: 'Ajouter une sous-section à l’inventaire, entre Équipement et Objets', onclick: addSection }, '+ Sous-section')))
+      h('div', { class: 'gs-inv-groups' }, INVENTORY_CATEGORIES.filter((cat) => cat.kind !== 'weapon').map(simpleGroup)))
 
     // Fenêtre de confirmation : quitter la fiche avec des modifications non validées (ancrée en haut, couvre la partie visible)
     const modal = pendingDiscard && h('div', { class: 'gs-modal-anchor' },
