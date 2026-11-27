@@ -19,6 +19,11 @@ import { setupMusic } from '../../src/music.js'
 import { BADGES } from '../../src/rules.js'
 import { OBSERVER, ROLE_LABEL, getRoster, profileOf, roleOf, ownerOfSheet, setupProfiles, setupPresence } from './presence.js'
 import { setupParty } from './party.js'
+import { autoSizeNumbers } from './autosize.js'
+
+// Champs numériques à largeur dynamique : toute la page, plus la fiche, qui reste suivie une fois détachée dans sa fenêtre
+autoSizeNumbers(document.body)
+autoSizeNumbers(document.getElementById('sheet'))
 
 const GAME = 'grandal'
 

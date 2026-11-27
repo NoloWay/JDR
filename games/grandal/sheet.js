@@ -87,8 +87,6 @@ export function weaponRoll(it) {
   if (dice && bonus) return `${dice} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`
   return dice || (bonus ? `${bonus > 0 ? '+' : '−'}${Math.abs(bonus)}` : '')
 }
-/** Largeur du champ des Gran : suit le nombre de chiffres */
-const granWidth = (value) => `${Math.max(4, String(Math.round(Number(value)) || 0).length + 2)}ch`
 const PORTRAIT_SIZE = 512
 
 // Silhouette de d20 (icosaèdre vu de face : contour hexagonal, triangle central, arêtes), au trait,
@@ -656,10 +654,9 @@ export function setupGrandalSheets(ctx) {
         h('span', { class: 'gran-logo', 'aria-hidden': 'true' }, 'G'),
         h('span', { class: 'gs-gran-label' }, 'Gran'),
         mayEdit
-          // Le champ s'agrandit avec le nombre (un chiffre de plus = un caractère de plus), y compris pendant la saisie
+          // Largeur suivant le nombre, comme tous les champs numériques (autosize.js)
           ? h('input', {
-            type: 'number', min: 0, class: 'num gs-gran-input', value: gran, 'aria-label': 'Nombre de Gran', style: `width:${granWidth(gran)}`,
-            oninput: (e) => { e.target.style.width = granWidth(e.target.value) },
+            type: 'number', min: 0, class: 'num gs-gran-input', value: gran, 'aria-label': 'Nombre de Gran',
             onchange: (e) => c.set('gran', Math.max(0, num(e.target.value, 0))),
           })
           : h('b', { class: 'gs-gran-value' }, gran)),
