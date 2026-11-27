@@ -88,6 +88,7 @@ export function weaponRoll(it) {
   return dice || (bonus ? `${bonus > 0 ? '+' : '−'}${Math.abs(bonus)}` : '')
 }
 const PORTRAIT_SIZE = 512
+const patchAt = (list, i, patch) => list.map((x, j) => (j === i ? { ...x, ...patch } : x))
 
 // Silhouette de d20 (icosaèdre vu de face : contour hexagonal, triangle central, arêtes), au trait,
 // dans la couleur du texte : discrète et assortie à la fiche, contrairement à l'émoji 🎲
@@ -211,6 +212,7 @@ export function setupGrandalSheets(ctx) {
     w.document.body.append(sheetEl)
     popup = w
     w.addEventListener('pointerup', released, true)
+    w.addEventListener('keyup', released, true)
     w.addEventListener('pointercancel', released, true)
     w.addEventListener('pagehide', () => { if (popup === w) { dock(); sheetEl.hidden = !openId; if (openId) render() } }) // fenêtre fermée par l'utilisateur : la fiche revient sur le plateau
     render()
@@ -312,13 +314,41 @@ export function setupGrandalSheets(ctx) {
   // focus au champ, donc enregistrer sa valeur et redessiner la fiche entre l'appui et le relâchement, ce qui annulait le clic.
   // Le rendu attend donc que le bouton de la souris soit relâché.
   let pressing = false
-  const render = liveRender(sheetEl, build, { busy: () => pressing })
-  sheetEl.addEventListener('pointerdown', () => { pressing = true }, true)
-  const released = () => {
-    if (!pressing) return
-    pressing = false
-    setTimeout(() => { if (render.isPending()) render() }) // après le clic
+  // Même chose pour la touche Tab (la valeur est enregistrée avant que le focus arrive sur l'élément suivant) et pour une liste
+  // déroulante qu'on vient d'ouvrir : la redessiner la refermerait. Dès qu'un choix y est fait, le rendu reprend.
+  const chosenSelects = new WeakSet()
+  const usingSelect = () => {
+    const a = sheetEl.ownerDocument.activeElement
+    return !!a && a.tagName === 'SELECT' && sheetEl.contains(a) && !chosenSelects.has(a)
   }
+  const render = liveRender(sheetEl, build, { busy: () => pressing || usingSelect() })
+  sheetEl.addEventListener('change', (e) => {
+    if (e.target.tagName !== 'SELECT') return
+    chosenSelects.add(e.target)
+    // Le choix redessine la fiche : le focus revient sur la liste (sinon les flèches du clavier ne la parcourent plus)
+    const selects = () => [...sheetEl.querySelectorAll('select')]
+    const rank = selects().indexOf(e.target)
+    setTimeout(() => { if (!e.target.isConnected) selects()[rank]?.focus({ preventScroll: true }) })
+  }, true)
+  sheetEl.addEventListener('pointerdown', () => { pressing = true }, true)
+  sheetEl.addEventListener('keydown', (e) => { if (e.key === 'Tab') pressing = true }, true)
+  /** Rendu en attente après Tab : le focus est replacé sur l'élément de même rang (un bouton redessiné le perdrait) */
+  const renderKeepingFocus = () => {
+    const all = () => [...sheetEl.querySelectorAll('input, select, textarea, button')]
+    const rank = all().indexOf(sheetEl.ownerDocument.activeElement)
+    render()
+    if (rank >= 0 && !render.isPending()) all()[rank]?.focus({ preventScroll: true })
+  }
+  const released = (e) => {
+    if (!pressing) return
+    const byTab = e?.type === 'keyup'
+    // « pressing » reste vrai jusqu'à ce tour-ci : un autre rendu différé ne peut pas passer avant et faire perdre le focus
+    setTimeout(() => {
+      pressing = false
+      if (render.isPending()) (byTab ? renderKeepingFocus : render)() // après le clic
+    })
+  }
+  addEventListener('keyup', released, true)
   addEventListener('pointerup', released, true)
   addEventListener('pointercancel', released, true)
 
@@ -348,7 +378,8 @@ export function setupGrandalSheets(ctx) {
         url && h('button', { class: 'small', onclick: () => { draft.portrait = null; render() } }, 'Retirer')))
 
     const classes = get('classes', [])
-    const setClasses = (list) => setD('classes', list)
+    // change(fn) : fn reçoit la liste ACTUELLE (l'affichage peut avoir un temps de retard pendant la saisie, voir liveRender)
+    const changeClasses = (fn) => setD('classes', fn(get('classes', [])))
     const identity = h('div', { class: 'gs-identity' },
       ed
         ? h('input', { class: 'gs-name-input', value: get('name'), placeholder: 'Nom complet', 'aria-label': 'Nom complet', onchange: set('name') })
@@ -366,13 +397,13 @@ export function setupGrandalSheets(ctx) {
         h('ul', { class: 'gs-classes' },
           classes.map((cl, i) => ed
             ? h('li', { class: 'gs-class-edit' },
-              h('input', { value: cl.name ?? '', placeholder: 'Classe', 'aria-label': 'Classe', onchange: (e) => setClasses(classes.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
+              h('input', { value: cl.name ?? '', placeholder: 'Classe', 'aria-label': 'Classe', onchange: (e) => changeClasses((l) => l.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
               h('span', {}, 'LV'),
-              h('input', { type: 'number', min: 0, class: 'num', value: num(cl.level, 1), 'aria-label': 'Niveau de classe', onchange: (e) => setClasses(classes.map((x, j) => (j === i ? { ...x, level: num(e.target.value, 1) } : x))) }),
-              h('button', { class: 'icon', title: 'Retirer la classe', onclick: () => setClasses(classes.filter((_, j) => j !== i)) }, '×'))
+              h('input', { type: 'number', min: 0, class: 'num', value: num(cl.level, 1), 'aria-label': 'Niveau de classe', onchange: (e) => changeClasses((l) => l.map((x, j) => (j === i ? { ...x, level: num(e.target.value, 1) } : x))) }),
+              h('button', { class: 'icon', title: 'Retirer la classe', onclick: () => changeClasses((l) => l.filter((_, j) => j !== i)) }, '×'))
             : h('li', {}, h('span', { class: 'gs-class-name' }, cl.name || 'Classe'), ' ', h('b', {}, `LV ${num(cl.level, 1)}`))),
           !ed && !classes.length && h('li', { class: 'muted' }, 'Aucune classe')),
-        ed && h('button', { class: 'small', onclick: () => setClasses([...classes, { name: '', level: 1 }]) }, '+ Classe')))
+        ed && h('button', { class: 'small', onclick: () => changeClasses((l) => [...l, { name: '', level: 1 }]) }, '+ Classe')))
 
     // ---- En-tête : actions ----
     const actions = h('div', { class: 'gs-actions' },
@@ -409,15 +440,15 @@ export function setupGrandalSheets(ctx) {
       h('div', { class: 'gs-effects' }, EFFECTS.map(({ key, label }) => {
         const k = `effects:${key}`
         const list = get(k, [])
-        const setList = (l) => setD(k, l)
+        const change = (fn) => setD(k, fn(get(k, [])))
         const shown = list.filter((fx) => (fx.name ?? '').trim() || (fx.desc ?? '').trim()) // consultation : sans les effets vides
         return h('div', { class: 'gs-effect-group' }, h('h4', {}, label),
           ed
             ? [...list.map((fx, i) => h('div', { class: 'gs-effect-edit' },
-              h('input', { value: fx.name ?? '', placeholder: 'Nom de l’effet', 'aria-label': 'Nom de l’effet', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x))) }),
-              h('button', { class: 'icon', title: 'Retirer l’effet', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'),
-              h('textarea', { rows: 2, value: fx.desc ?? '', placeholder: 'Description', 'aria-label': 'Description de l’effet', onchange: (e) => setList(list.map((x, j) => (j === i ? { ...x, desc: e.target.value } : x))) }))),
-            h('button', { class: 'small', onclick: () => setList([...list, { name: '', desc: '' }]) }, '+ Effet')]
+              h('input', { value: fx.name ?? '', placeholder: 'Nom de l’effet', 'aria-label': 'Nom de l’effet', onchange: (e) => change((l) => patchAt(l, i, { name: e.target.value })) }),
+              h('button', { class: 'icon', title: 'Retirer l’effet', onclick: () => change((l) => l.filter((_, j) => j !== i)) }, '×'),
+              h('textarea', { rows: 2, value: fx.desc ?? '', placeholder: 'Description', 'aria-label': 'Description de l’effet', onchange: (e) => change((l) => patchAt(l, i, { desc: e.target.value })) }))),
+            h('button', { class: 'small', onclick: () => change((l) => [...l, { name: '', desc: '' }]) }, '+ Effet')]
             : shown.length
               ? h('ul', {}, shown.map((fx) => h('li', {}, h('b', {}, fx.name || 'Effet'), fx.desc && h('p', {}, fx.desc))))
               : h('p', { class: 'muted' }, 'Aucun'))
@@ -449,9 +480,9 @@ export function setupGrandalSheets(ctx) {
         h('td', { class: `gs-value gs-eff${adj > 0 ? ' up' : adj < 0 ? ' down' : ''}`, title: adj ? `Base ${base} ${adj > 0 ? '+' : '−'} ${Math.abs(adj)}` : 'Valeur effective = valeur de base' },
           mayEdit
             ? h('div', { class: 'gs-eff-ctl' },
-              h('button', { class: 'gs-step', title: 'Diminuer la valeur effective', 'aria-label': `${label} : diminuer la valeur effective`, onclick: () => setAdj(key, adj - 1) }, '−'),
+              h('button', { class: 'gs-step', title: 'Diminuer la valeur effective', 'aria-label': `${label} : diminuer la valeur effective`, onclick: () => setAdj(key, statAdj(key) - 1) }, '−'),
               h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur effective`, onchange: (e) => setAdj(key, num(e.target.value, value) - base) }),
-              h('button', { class: 'gs-step', title: 'Augmenter la valeur effective', 'aria-label': `${label} : augmenter la valeur effective`, onclick: () => setAdj(key, adj + 1) }, '+'),
+              h('button', { class: 'gs-step', title: 'Augmenter la valeur effective', 'aria-label': `${label} : augmenter la valeur effective`, onclick: () => setAdj(key, statAdj(key) + 1) }, '+'),
               adj !== 0 && h('button', { class: 'gs-step gs-reset', title: `Revenir à la valeur de base (${base})`, 'aria-label': `${label} : revenir à la valeur de base`, onclick: () => setAdj(key, 0) }, '↺'))
             : value),
         h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}`, title: 'Modificateur = (valeur − 10) ÷ 2, arrondi à l’inférieur' }, signed(mod)),
@@ -476,8 +507,8 @@ export function setupGrandalSheets(ctx) {
       h('div', { class: 'gs-skills' }, SKILL_CATEGORIES.map(({ key, label }) => {
         const k = `skills:${key}`
         const list = get(k, [])
-        const setList = (l) => setD(k, l)
-        const patch = (i, p) => setList(list.map((x, j) => (j === i ? { ...x, ...p } : x)))
+        const change = (fn) => setD(k, fn(get(k, [])))
+        const patch = (i, p) => change((l) => patchAt(l, i, p))
         const shown = list.filter((sk) => (sk.name ?? '').trim())
         return h('div', { class: 'gs-skill-group' }, h('h4', {}, label),
           ed
@@ -486,8 +517,8 @@ export function setupGrandalSheets(ctx) {
               h('select', { 'aria-label': 'Niveau d’apprentissage', onchange: (e) => patch(i, { level: e.target.value }) },
                 SKILL_LEVELS.map((l) => h('option', { value: l.key, selected: l.key === skillLevel(sk.level).key }, l.label))),
               h('span', { class: 'gs-skill-bonus' }, `+${skillLevel(sk.level).bonus}`),
-              h('button', { class: 'icon', title: 'Retirer la compétence', onclick: () => setList(list.filter((_, j) => j !== i)) }, '×'))),
-            h('button', { class: 'small', onclick: () => setList([...list, { name: '', level: 'connaissance' }]) }, '+ Compétence')]
+              h('button', { class: 'icon', title: 'Retirer la compétence', onclick: () => change((l) => l.filter((_, j) => j !== i)) }, '×'))),
+            h('button', { class: 'small', onclick: () => change((l) => [...l, { name: '', level: 'connaissance' }]) }, '+ Compétence')]
             : shown.length
               ? h('ul', {}, shown.map((sk) => {
                 const l = skillLevel(sk.level)
@@ -513,7 +544,8 @@ export function setupGrandalSheets(ctx) {
     const withBonus = (it) => ({ ...it, bonus: resolveBonus(it) })
     const statLabel = (key) => STATS.find((s) => s.key === key)?.label ?? key
     // Bouton de jet d'une arme : mêmes règles que ceux des caractéristiques (MJ et propriétaire seulement) ; il faut des dés définis
-    const weaponButton = (raw) => {
+    // `now()` relit la ligne au moment du clic (valeurs tout juste saisies comprises)
+    const weaponButton = (raw, now = () => raw) => {
       const it = withBonus(raw)
       const parsed = it.dice ? parseDice(it.dice) : null
       const ok = mayEdit && !!parsed
@@ -523,10 +555,11 @@ export function setupGrandalSheets(ctx) {
           : ok ? `Jet de ${it.name || 'l’arme'} : ${weaponRoll(it)}` : 'Seuls le MJ et le joueur de cette fiche peuvent lancer ce jet',
         'aria-label': `Lancer le jet de ${it.name || 'l’arme'} (${weaponRoll(it) || 'aucun jet'})`,
         onclick: () => {
-          const p = it.dice ? parseDice(it.dice) : null
+          const line = now() ?? raw
+          const p = line.dice ? parseDice(line.dice) : null
           if (!p || !canEdit(c)) return
           const [count, faces] = p.split('d').map(Number)
-          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${it.name || 'Arme'}`, count, faces, resolveBonus(raw))
+          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${line.name || 'Arme'}`, count, faces, resolveBonus(line))
         },
       })
     }
@@ -539,55 +572,70 @@ export function setupGrandalSheets(ctx) {
         onValid(d)
       },
     })
-    const patchAt = (list, i, patch) => list.map((x, j) => (j === i ? { ...x, ...patch } : x))
     // Ligne fermée : ✎ ouvre ses champs. Ligne ouverte : ✓ valide (referme), ↺ annule les changements faits depuis l'ouverture,
     // × supprime (après confirmation)
     const pencil = (cat, i, it) => mayEdit && h('button', { class: 'gs-line-btn gs-pencil', title: 'Modifier cette ligne', 'aria-label': 'Modifier cette ligne', onclick: () => openLine(cat.key, i, it) }, '✎')
-    const lineButtons = (cat, i, list, setList) => {
+    const lineButtons = (cat, i, list, change) => {
       const snap = lineSnaps.get(lineKey(cat.key, i))
       const isNew = snap === NEW_LINE
       const changed = isNew || (snap !== undefined && JSON.stringify(list[i]) !== snap)
       return h('span', { class: 'gs-line-btns' },
         h('button', { class: 'gs-line-btn', title: 'Valider cette ligne et fermer ses champs', 'aria-label': 'Valider cette ligne', onclick: () => { closeLine(cat.key, i); render() } }, '✓'),
         h('button', {
-          class: 'gs-line-btn', disabled: !changed, 'aria-label': 'Annuler les changements de cette ligne',
+          class: 'gs-line-btn gs-line-undo', disabled: !changed, 'aria-label': 'Annuler les changements de cette ligne',
           title: isNew ? 'Annuler : la ligne qui vient d’être ajoutée est retirée' : changed ? 'Annuler les changements faits sur cette ligne' : 'Aucun changement à annuler',
           onclick: () => {
             closeLine(cat.key, i)
-            if (isNew) { clearLines(cat.key); setList(list.filter((_, j) => j !== i)) } else setList(list.map((x, j) => (j === i ? JSON.parse(snap) : x)))
+            if (isNew) { clearLines(cat.key); change((l) => l.filter((_, j) => j !== i)) } else change((l) => l.map((x, j) => (j === i ? JSON.parse(snap) : x)))
           },
         }, '↺'),
         h('button', { class: 'gs-line-btn gs-line-del', title: 'Supprimer cette ligne', 'aria-label': 'Supprimer cette ligne', onclick: () => { confirmingLine = lineKey(cat.key, i); render() } }, '×'))
     }
     // Confirmation de suppression d'une ligne (dans la ligne, sans boîte du navigateur)
-    const lineConfirm = (cat, i, list, setList) => confirmingLine === lineKey(cat.key, i) && h('div', { class: 'gs-line-confirm', role: 'alertdialog', 'aria-label': 'Confirmer la suppression de la ligne' },
+    const lineConfirm = (cat, i, list, change) => confirmingLine === lineKey(cat.key, i) && h('div', { class: 'gs-line-confirm', role: 'alertdialog', 'aria-label': 'Confirmer la suppression de la ligne' },
       h('span', {}, `Supprimer ${(list[i]?.name ?? '').trim() ? `« ${list[i].name} »` : 'cette ligne'} ?`),
       h('button', { class: 'small', onclick: () => { confirmingLine = null; render() } }, 'Annuler'),
-      h('button', { class: 'small danger', onclick: () => { clearLines(cat.key); setList(list.filter((_, j) => j !== i)) } }, 'Oui, supprimer'))
-    const addLine = (cat, list, setList, blank) => h('button', { class: 'small', onclick: () => { editingLines.add(lineKey(cat.key, list.length)); lineSnaps.set(lineKey(cat.key, list.length), NEW_LINE); setList([...list, blank]) } }, cat.add)
+      h('button', { class: 'small danger', onclick: () => { clearLines(cat.key); change((l) => l.filter((_, j) => j !== i)) } }, 'Oui, supprimer'))
+    const addLine = (cat, change, blank) => h('button', {
+      class: 'small',
+      onclick: () => change((l) => {
+        editingLines.add(lineKey(cat.key, l.length))
+        lineSnaps.set(lineKey(cat.key, l.length), NEW_LINE)
+        return [...l, blank]
+      }),
+    }, cat.add)
 
     // Armes : ligne par défaut « Mains nues » (2d4 + modificateur de Force) tant que la liste n'a jamais été modifiée ; ensuite c'est une ligne
     // comme les autres, modifiable et supprimable
     const legacyUnarmed = live('unarmed', {})
-    const weaponsList = c.get('inventory:weapons') ?? [{ ...DEFAULT_WEAPON, dice: (legacyUnarmed.dice && parseDice(legacyUnarmed.dice)) || DEFAULT_WEAPON.dice, desc: legacyUnarmed.desc ?? '' }]
-    const weaponRow = (cat, it, i, list, setList) => {
+    const weaponsNow = () => c.get('inventory:weapons') ?? [{ ...DEFAULT_WEAPON, dice: (legacyUnarmed.dice && parseDice(legacyUnarmed.dice)) || DEFAULT_WEAPON.dice, desc: legacyUnarmed.desc ?? '' }]
+    // Pendant qu'on remplit une ligne, la fiche n'est pas encore redessinée : « ↺ » et le jet de la ligne sont mis à jour sur place
+    const refreshOpenLine = (e, dice) => {
+      const li = e.currentTarget
+      const undo = li.querySelector('.gs-line-undo')
+      if (undo) { undo.disabled = false; undo.title = 'Annuler les changements faits sur cette ligne' }
+      if (dice) for (const b of li.querySelectorAll('.gs-roll-btn')) b.disabled = !parseDice(dice() ?? '')
+    }
+    const weaponRow = (cat, it, i, list, change) => {
       if (!lineOpen(cat.key, i)) {
         const r = withBonus(it)
         return h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'),
           h('span', { class: 'gs-weapon-right' }, weaponRoll(r) && h('span', { class: 'gs-weapon-dmg', title: it.bonusStat ? `Jet : dés + modificateur de ${statLabel(it.bonusStat)}` : 'Jet : dés + valeur fixe' }, weaponRoll(r)), ctx.onRollWeapon && weaponButton(it), pencil(cat, i, it))),
         it.desc && h('p', {}, it.desc))
       }
-      return h('li', { class: 'gs-line-open' }, h('div', { class: 'gs-effect-edit' },
-        h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => setList(patchAt(list, i, { name: e.target.value })) }),
-        lineButtons(cat, i, list, setList),
-        lineConfirm(cat, i, list, setList),
+      const patch = (p) => change((l) => patchAt(l, i, p))
+      const now = () => weaponsNow()[i]
+      return h('li', { class: 'gs-line-open', onchange: (e) => refreshOpenLine(e, () => now()?.dice) }, h('div', { class: 'gs-effect-edit' },
+        h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => patch({ name: e.target.value }) }),
+        lineButtons(cat, i, list, change),
+        lineConfirm(cat, i, list, change),
         // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe (écrite, ou modificateur d'une caractéristique)
         h('div', { class: 'gs-weapon-roll' },
-          diceInput(it.dice, (d) => setList(patchAt(list, i, { dice: d }))),
+          diceInput(it.dice, (d) => patch({ dice: d })),
           h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
           h('select', {
             class: 'gs-bonus-source', 'aria-label': 'Valeur ajoutée au résultat : valeur écrite ou modificateur', title: 'Valeur ajoutée au résultat des dés',
-            onchange: (e) => setList(patchAt(list, i, { bonusStat: e.target.value })),
+            onchange: (e) => patch({ bonusStat: e.target.value }),
           },
           h('option', { value: '', selected: !it.bonusStat }, 'Valeur écrite'),
           STATS.map((s) => h('option', { value: s.key, selected: s.key === it.bonusStat }, `Mod. ${s.label}`))),
@@ -595,27 +643,28 @@ export function setupGrandalSheets(ctx) {
             ? h('span', { class: 'gs-bonus-auto', title: `Modificateur de ${statLabel(it.bonusStat)} : se met à jour tout seul` }, signed(resolveBonus(it)))
             : h('input', {
               type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat', title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
-              onchange: (e) => setList(patchAt(list, i, { bonus: num(e.target.value, 0) })),
+              onchange: (e) => patch({ bonus: num(e.target.value, 0) }),
             }),
-          ctx.onRollWeapon && weaponButton(it)),
-        h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => setList(patchAt(list, i, { desc: e.target.value })) })))
+          ctx.onRollWeapon && weaponButton(it, now)),
+        h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => patch({ desc: e.target.value }) })))
     }
-    const weaponsGroup = (cat, list, setList) => h('div', { class: 'gs-inv-group gs-inv-weapons' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)),
-      list.length ? h('ul', {}, list.map((it, i) => weaponRow(cat, it, i, list, setList))) : h('p', { class: 'muted' }, 'Aucune'),
-      mayEdit && addLine(cat, list, setList, { name: '', desc: '', dice: '', bonus: 0, bonusStat: '' }))
+    const weaponsGroup = (cat, list, change) => h('div', { class: 'gs-inv-group gs-inv-weapons' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)),
+      list.length ? h('ul', {}, list.map((it, i) => weaponRow(cat, it, i, list, change))) : h('p', { class: 'muted' }, 'Aucune'),
+      mayEdit && addLine(cat, change, { name: '', desc: '', dice: '', bonus: 0, bonusStat: '' }))
 
     // Équipement, objets et sous-sections ajoutées : une ligne = un nom + une description
     const sections = live('inventory:sections', []) // [{ id, name }] sous-sections ajoutées, affichées dans la catégorie Objets
-    const setSections = (l) => c.set('inventory:sections', l)
-    const simpleRow = (cat, it, i, list, setList) => {
+    const changeSections = (fn) => c.set('inventory:sections', fn(c.get('inventory:sections') ?? []))
+    const simpleRow = (cat, it, i, list, change) => {
       if (!lineOpen(cat.key, i)) {
         return h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || cat.label), pencil(cat, i, it)), it.desc && h('p', {}, it.desc))
       }
-      return h('li', { class: 'gs-line-open' }, h('div', { class: 'gs-effect-edit' },
-        h('input', { value: it.name ?? '', placeholder: 'Nom', 'aria-label': `Nom (${cat.label})`, onchange: (e) => setList(patchAt(list, i, { name: e.target.value })) }),
-        lineButtons(cat, i, list, setList),
-        lineConfirm(cat, i, list, setList),
-        h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description', 'aria-label': `Description (${cat.label})`, onchange: (e) => setList(patchAt(list, i, { desc: e.target.value })) })))
+      const patch = (p) => change((l) => patchAt(l, i, p))
+      return h('li', { class: 'gs-line-open', onchange: (e) => refreshOpenLine(e) }, h('div', { class: 'gs-effect-edit' },
+        h('input', { value: it.name ?? '', placeholder: 'Nom', 'aria-label': `Nom (${cat.label})`, onchange: (e) => patch({ name: e.target.value }) }),
+        lineButtons(cat, i, list, change),
+        lineConfirm(cat, i, list, change),
+        h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description', 'aria-label': `Description (${cat.label})`, onchange: (e) => patch({ desc: e.target.value }) })))
     }
     // En-tête d'une sous-section ajoutée : nom modifiable à la volée ; « Supprimer » seulement en mode « Modifier » (avec
     // confirmation), appliqué au clic sur « Terminer ». Armes, Équipement et Objets ne se suppriment pas.
@@ -623,7 +672,7 @@ export function setupGrandalSheets(ctx) {
       mayEdit
         ? h('input', {
           class: 'gs-section-name', value: custom.name, maxLength: 40, 'aria-label': 'Nom de la sous-section',
-          onchange: (e) => setSections(sections.map((x) => (x.id === custom.id ? { ...x, name: e.target.value.trim() || x.name } : x))),
+          onchange: (e) => changeSections((l) => l.map((x) => (x.id === custom.id ? { ...x, name: e.target.value.trim() || x.name } : x))),
         })
         : h('h5', {}, custom.name),
       ed && (confirmingSection === custom.id
@@ -632,26 +681,26 @@ export function setupGrandalSheets(ctx) {
           h('button', { class: 'small', onclick: () => { confirmingSection = null; render() } }, 'Annuler'),
           h('button', { class: 'small danger', onclick: () => { confirmingSection = null; clearLines(cat.key); draft.removedSections.push(custom.id); render() } }, 'Oui, supprimer'))
         : h('button', { class: 'small danger', title: 'Supprimer cette sous-section (appliqué avec « Terminer »)', onclick: () => { confirmingSection = custom.id; render() } }, 'Supprimer')))
-    const groupLines = (cat, list, setList) => [
-      list.length ? h('ul', {}, list.map((it, i) => simpleRow(cat, it, i, list, setList))) : h('p', { class: 'muted' }, cat.empty),
-      mayEdit && addLine(cat, list, setList, { name: '', desc: '' }),
+    const groupLines = (cat, list, change) => [
+      list.length ? h('ul', {}, list.map((it, i) => simpleRow(cat, it, i, list, change))) : h('p', { class: 'muted' }, cat.empty),
+      mayEdit && addLine(cat, change, { name: '', desc: '' }),
     ].filter(Boolean)
     const addSection = () => {
       const input = sheetEl.querySelector('.gs-add-section input')
       const name = (input?.value ?? '').trim()
       if (!name) { input?.focus(); return }
-      setSections([...sections, { id: crypto.randomUUID().slice(0, 8), name }])
+      changeSections((l) => [...l, { id: crypto.randomUUID().slice(0, 8), name }])
     }
-    const listOf = (key) => ({ list: live(`inventory:${key}`, []), setList: (l) => c.set(`inventory:${key}`, l) })
+    const listOf = (key) => ({ list: live(`inventory:${key}`, []), change: (fn) => c.set(`inventory:${key}`, fn(live(`inventory:${key}`, []))) })
     // Les sous-sections ajoutées s'affichent dans la catégorie Objets, sous ses propres lignes
     const subSections = () => sections.filter((sec) => !(ed && draft.removedSections.includes(sec.id))).map((sec) => {
       const cat = { key: `custom:${sec.id}`, label: sec.name, kind: 'simple', add: '+ Ligne', empty: 'Aucune ligne' }
-      const { list, setList } = listOf(cat.key)
-      return h('div', { class: 'gs-inv-sub' }, subHead(cat, list, sec), groupLines(cat, list, setList))
+      const { list, change } = listOf(cat.key)
+      return h('div', { class: 'gs-inv-sub' }, subHead(cat, list, sec), groupLines(cat, list, change))
     })
     const simpleGroup = (cat) => {
-      const { list, setList } = listOf(cat.key)
-      return h('div', { class: 'gs-inv-group' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)), groupLines(cat, list, setList),
+      const { list, change } = listOf(cat.key)
+      return h('div', { class: 'gs-inv-group' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)), groupLines(cat, list, change),
         cat.key === 'items' && subSections(),
         // Nouvelle sous-section (MJ et joueur propriétaire)
         cat.key === 'items' && mayEdit && h('div', { class: 'gs-add-section' },
@@ -672,7 +721,7 @@ export function setupGrandalSheets(ctx) {
             onchange: (e) => c.set('gran', Math.max(0, num(e.target.value, 0))),
           })
           : h('b', { class: 'gs-gran-value' }, gran)),
-      weaponsGroup(INVENTORY_CATEGORIES[0], weaponsList, (l) => c.set('inventory:weapons', l)))
+      weaponsGroup(INVENTORY_CATEGORIES[0], weaponsNow(), (fn) => c.set('inventory:weapons', fn(weaponsNow()))))
     // Dessous : Équipement et Objets (qui contient les sous-sections ajoutées)
     const inventoryRest = h('section', { class: 'gs-sec gs-inventory-rest' }, h('h3', { class: 'gs-sec-title' }, 'Inventaire'),
       h('div', { class: 'gs-inv-groups' }, INVENTORY_CATEGORIES.filter((cat) => cat.kind !== 'weapon').map(simpleGroup)))

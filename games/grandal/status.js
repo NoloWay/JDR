@@ -125,9 +125,9 @@ export function statusViews(st) {
       withBase && h('span', { class: 'st-spd-base', title: 'Vitesse de base' }, `Base ${base}`),
       canEdit
         ? h('span', { class: 'gs-eff-ctl' },
-          h('button', { class: 'gs-step', title: 'Diminuer la vitesse effective', 'aria-label': 'SPD : diminuer la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, adj - 1) } }, '−'),
+          h('button', { class: 'gs-step', title: 'Diminuer la vitesse effective', 'aria-label': 'SPD : diminuer la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, st.spd(id).adj - 1) } }, '−'),
           h('input', { type: 'number', class: 'num', value: eff, 'aria-label': 'SPD : vitesse effective', onchange: (e) => st.setSpdAdj(id, (Number.isFinite(Number(e.target.value)) && e.target.value !== '' ? Math.round(Number(e.target.value)) : eff) - base) }),
-          h('button', { class: 'gs-step', title: 'Augmenter la vitesse effective', 'aria-label': 'SPD : augmenter la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, adj + 1) } }, '+'),
+          h('button', { class: 'gs-step', title: 'Augmenter la vitesse effective', 'aria-label': 'SPD : augmenter la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, st.spd(id).adj + 1) } }, '+'),
           adj !== 0 && h('button', { class: 'gs-step gs-reset', title: `Revenir à la vitesse de base (${base})`, 'aria-label': 'SPD : revenir à la vitesse de base', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, 0) } }, '↺'))
         : h('b', { class: 'st-spd-eff' }, eff))
   }
@@ -162,7 +162,7 @@ export function statusViews(st) {
           h('span', { class: 'st-count' }, `${v.cur} / ${v.max}${extra ? ` + ${extra}` : ''}`),
           res === RES.ep && canEdit && h('button', { class: 'small st-add', title: 'Ajouter un EP supplémentaire (au-delà du maximum)', onclick: () => st.addExtra(id) }, '+ EP'),
           ed && h('span', { class: 'st-edit' }, h('span', { class: 'muted' }, 'max'), num(v.max, (n) => setMaxD(res, n), { 'aria-label': `${res.label} : maximum` }))),
-        pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, extra - 1))))
+        pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, st.extra(id) - 1))))
     }
     const spd = st.spd(id)
     const spdBase = ov && 'spd' in ov ? ov.spd : spd.base
@@ -196,7 +196,7 @@ export function statusViews(st) {
       const v = st.read(id, res)
       const extra = res === RES.ep ? st.extra(id) : 0
       return h('div', { class: `st-row st-row-${cls}` }, h('span', { class: 'st-row-label', title: res.title }, res.label),
-        pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, extra - 1))),
+        pips(res, v.cur, v.max, canEdit && ((i) => st.togglePip(id, res, i)), extra, canEdit && (() => st.setExtra(id, st.extra(id) - 1))),
         res === RES.ep && canEdit && h('button', { class: 'small st-add', title: 'Ajouter un EP supplémentaire (au-delà du maximum)', onclick: (e) => { e.stopPropagation(); st.addExtra(id) } }, '+ EP'))
     }
     const lines = st.ssAll(id).filter((s) => s.max > 0)
