@@ -9,9 +9,12 @@
 //                                    effets), adj = écart temporaire (+/−, 0 si absent) ; valeur effective = value + adj ;
 //                                    modificateur calculé sur la valeur effective (modifier), jamais stocké (un ancien champ mod est ignoré)
 //   gran                             nombre de Gran (la monnaie), entier ≥ 0
-//   inventory:weapons                [{ name, desc, dice, bonus, bonusStat }] armes (INVENTORY_CATEGORIES) ; dice = « 2d6 » (nombre de dés + faces),
-//                                    valeur ajoutée = bonus (écrite) ou, si bonusStat est une clé de STATS, le modificateur de cette caractéristique
-//                                    (suit le tableau en direct) ; absent = liste par défaut [DEFAULT_WEAPON] (Mains nues), jamais écrite avant une modification
+//   inventory:weapons                [{ name, desc, damages }] armes (INVENTORY_CATEGORIES) ; damages = lignes de dégâts, une par type :
+//                                    [{ dice, bonus, bonusStat, type }] ; dice = « 2d6 » (nombre de dés + faces), valeur ajoutée = bonus
+//                                    (écrite) ou, si bonusStat est une clé de STATS, le modificateur de cette caractéristique (suit le
+//                                    tableau en direct) ; type = texte libre ; liste absente = [DEFAULT_WEAPON] (Mains nues), jamais écrite
+//                                    avant une modification. Ancien format (dice, bonus, bonusStat sur l'arme) : lu comme une seule ligne
+//                                    (weaponDamages), réécrit au nouveau format à la première modification des dégâts
 //   inventory:equipment | inventory:items   [{ name, desc }] équipement et objets
 //   unarmed                          ancien réglage de la ligne « Mains nues » (dice, desc), repris tant que la liste d'armes n'est pas écrite
 //   skills:<catégorie>               [{ name, level }] compétences (SKILL_CATEGORIES), level = connaissance | expertise | maitrise ;
@@ -71,7 +74,19 @@ export const INVENTORY_CATEGORIES = [
 ]
 export const UNARMED_DICE = '2d4'
 // « Mains nues » : ligne présente par défaut tant que les armes d'une fiche n'ont jamais été modifiées ; ensuite, une ligne comme les autres
-export const DEFAULT_WEAPON = { name: 'Mains nues', desc: '', dice: UNARMED_DICE, bonus: 0, bonusStat: 'force' }
+export const DEFAULT_WEAPON = { name: 'Mains nues', desc: '', damages: [{ dice: UNARMED_DICE, bonus: 0, bonusStat: 'force', type: '' }] }
+const newDamage = () => ({ dice: '', bonus: 0, bonusStat: '', type: '' })
+/** Lignes de dégâts d'une arme (ancien format, une seule ligne portée par l'arme elle-même, compris) */
+export const weaponDamages = (it) => (Array.isArray(it?.damages) && it.damages.length
+  ? it.damages
+  : [{ dice: it?.dice ?? '', bonus: it?.bonus ?? 0, bonusStat: it?.bonusStat ?? '', type: '' }])
+/** L'arme avec ces lignes de dégâts, au format actuel (les anciens champs sont retirés) */
+const withDamages = (it, damages) => {
+  const { dice, bonus, bonusStat, ...rest } = it
+  return { ...rest, damages }
+}
+// Ligne de dégâts jamais remplie : retirée sans demander de confirmation
+const emptyDamage = (d) => !d.dice && !d.bonusStat && !(Number(d.bonus) || 0) && !(d.type ?? '').trim()
 /** « 2d6 », « D8 », « 3 d 10 » → « 2d6 », « 1d8 », « 3d10 » ; null si ce n'est pas un jet de dés valide (au moins 1 dé, 2 faces) */
 export function parseDice(text) {
   const m = /^\s*(\d*)\s*d\s*(\d+)\s*$/i.exec(String(text))
@@ -140,7 +155,7 @@ async function shrink(file) {
 /**
  * ctx : { doc, me() → { name, isGM }, ownerOf(nom, joueur) → profil ou '', playerChoices() → profils joueurs, onOpen(),
  *         onRoll(libellé, valeur demandée) → jet d'une caractéristique,
- *         onRollWeapon(libellé, nombre de dés, faces, valeur fixe) → jet de dégâts d'une arme }
+ *         onRollWeapon(libellé, nombre de dés, faces, valeur fixe, type de dégâts) → jet de dégâts d'une arme }
  * Renvoie { open(id), close(), create(), rerender() }
  */
 export function setupGrandalSheets(ctx) {
@@ -164,6 +179,7 @@ export function setupGrandalSheets(ctx) {
   const lineSnaps = new Map() // état d'une ligne à l'ouverture de ses champs (JSON), ou NEW_LINE pour une ligne qui vient d'être ajoutée
   const NEW_LINE = Symbol('nouvelle ligne')
   let confirmingLine = null // ligne dont on confirme la suppression (« catégorie#index »)
+  let confirmingDamage = null // ligne de dégâts dont on confirme la suppression (« index de l'arme#index de la ligne »)
   let confirmingDelete = false // étape de confirmation de la suppression (dans la fiche, pas de boîte du navigateur)
 
   const ownerName = (c) => ctx.ownerOf(c.get('name'), c.get('player'))
@@ -249,13 +265,14 @@ export function setupGrandalSheets(ctx) {
     editingLines.clear()
     lineSnaps.clear()
     confirmingLine = null
+    confirmingDamage = null
     sheetEl.hidden = true
     sheetEl.innerHTML = ''
   }
   function open(id) {
     if (!characters.has(id)) return
     if (id !== openId && dirty()) { pendingDiscard = () => open(id); render(); return } // une autre fiche : on abandonne d'abord les modifications
-    if (id !== openId) { endDraft(); confirmingDelete = false; confirmingSection = null; editingLines.clear(); lineSnaps.clear(); confirmingLine = null }
+    if (id !== openId) { endDraft(); confirmingDelete = false; confirmingSection = null; editingLines.clear(); lineSnaps.clear(); confirmingLine = null; confirmingDamage = null }
     ctx.onOpen?.()
     openId = id
     sheetEl.hidden = false
@@ -537,29 +554,32 @@ export function setupGrandalSheets(ctx) {
     const lineOpen = (catKey, i) => editingLines.has(`${catKey}#${i}`)
     const lineKey = (catKey, i) => `${catKey}#${i}`
     const openLine = (catKey, i, item) => { lineSnaps.set(lineKey(catKey, i), JSON.stringify(item)); editingLines.add(lineKey(catKey, i)); render() }
-    const closeLine = (catKey, i) => { editingLines.delete(lineKey(catKey, i)); lineSnaps.delete(lineKey(catKey, i)); if (confirmingLine === lineKey(catKey, i)) confirmingLine = null }
-    const clearLines = (catKey) => { for (const k of [...editingLines]) if (k.startsWith(`${catKey}#`)) { editingLines.delete(k); lineSnaps.delete(k) }; confirmingLine = null }
+    const closeLine = (catKey, i) => { editingLines.delete(lineKey(catKey, i)); lineSnaps.delete(lineKey(catKey, i)); if (catKey === 'weapons') confirmingDamage = null; if (confirmingLine === lineKey(catKey, i)) confirmingLine = null }
+    const clearLines = (catKey) => { for (const k of [...editingLines]) if (k.startsWith(`${catKey}#`)) { editingLines.delete(k); lineSnaps.delete(k) }; confirmingLine = null; confirmingDamage = null }
     // Valeur fixe d'une arme : écrite à la main, ou modificateur d'une caractéristique (suit le tableau en direct)
     const resolveBonus = (it) => (it.bonusStat && STATS.some((s) => s.key === it.bonusStat) ? modifier(statValue(it.bonusStat)) : Math.round(Number(it.bonus)) || 0)
     const withBonus = (it) => ({ ...it, bonus: resolveBonus(it) })
     const statLabel = (key) => STATS.find((s) => s.key === key)?.label ?? key
-    // Bouton de jet d'une arme : mêmes règles que ceux des caractéristiques (MJ et propriétaire seulement) ; il faut des dés définis
-    // `now()` relit la ligne au moment du clic (valeurs tout juste saisies comprises)
-    const weaponButton = (raw, now = () => raw) => {
-      const it = withBonus(raw)
-      const parsed = it.dice ? parseDice(it.dice) : null
+    // Bouton de jet d'une ligne de dégâts : mêmes règles que ceux des caractéristiques (MJ et propriétaire) ; il faut des dés définis
+    // `now()` relit l'arme au moment du clic (valeurs tout juste saisies comprises)
+    const weaponButton = (weapon, k, now = () => weapon) => {
+      const dmg = weaponDamages(weapon)[k]
+      const roll = weaponRoll(withBonus(dmg))
+      const what = `${weapon.name || 'l’arme'}${(dmg.type ?? '').trim() ? ` (${dmg.type.trim()})` : ''}`
+      const parsed = dmg.dice ? parseDice(dmg.dice) : null
       const ok = mayEdit && !!parsed
       return d20Button({
         disabled: !ok,
-        title: !parsed ? 'Aucun jet défini pour cette arme (dés à renseigner)'
-          : ok ? `Jet de ${it.name || 'l’arme'} : ${weaponRoll(it)}` : 'Seuls le MJ et le joueur de cette fiche peuvent lancer ce jet',
-        'aria-label': `Lancer le jet de ${it.name || 'l’arme'} (${weaponRoll(it) || 'aucun jet'})`,
+        title: !parsed ? 'Aucun jet défini sur cette ligne (dés à renseigner)'
+          : ok ? `Jet de ${what} : ${roll}` : 'Seuls le MJ et le joueur de cette fiche peuvent lancer ce jet',
+        'aria-label': `Lancer le jet de ${what} (${roll || 'aucun jet'})`,
         onclick: () => {
-          const line = now() ?? raw
-          const p = line.dice ? parseDice(line.dice) : null
+          const w = now() ?? weapon
+          const line = weaponDamages(w)[k]
+          const p = line?.dice ? parseDice(line.dice) : null
           if (!p || !canEdit(c)) return
           const [count, faces] = p.split('d').map(Number)
-          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${line.name || 'Arme'}`, count, faces, resolveBonus(line))
+          ctx.onRollWeapon(`${get('name') || 'Sans nom'} · ${w.name || 'Arme'}`, count, faces, resolveBonus(line), (line.type ?? '').trim())
         },
       })
     }
@@ -608,49 +628,81 @@ export function setupGrandalSheets(ctx) {
     // Armes : ligne par défaut « Mains nues » (2d4 + modificateur de Force) tant que la liste n'a jamais été modifiée ; ensuite c'est une ligne
     // comme les autres, modifiable et supprimable
     const legacyUnarmed = live('unarmed', {})
-    const weaponsNow = () => c.get('inventory:weapons') ?? [{ ...DEFAULT_WEAPON, dice: (legacyUnarmed.dice && parseDice(legacyUnarmed.dice)) || DEFAULT_WEAPON.dice, desc: legacyUnarmed.desc ?? '' }]
+    const unarmedDice = (legacyUnarmed.dice && parseDice(legacyUnarmed.dice)) || UNARMED_DICE
+    const weaponsNow = () => c.get('inventory:weapons') ?? [{ ...DEFAULT_WEAPON, desc: legacyUnarmed.desc ?? '', damages: [{ ...DEFAULT_WEAPON.damages[0], dice: unarmedDice }] }]
     // Pendant qu'on remplit une ligne, la fiche n'est pas encore redessinée : « ↺ » et le jet de la ligne sont mis à jour sur place
     const refreshOpenLine = (e, dice) => {
       const li = e.currentTarget
       const undo = li.querySelector('.gs-line-undo')
       if (undo) { undo.disabled = false; undo.title = 'Annuler les changements faits sur cette ligne' }
-      if (dice) for (const b of li.querySelectorAll('.gs-roll-btn')) b.disabled = !parseDice(dice() ?? '')
+      if (dice) li.querySelectorAll('.gs-damage .gs-roll-btn').forEach((b) => { b.disabled = !parseDice(dice(Number(b.closest('.gs-damage').dataset.damage)) ?? '') })
     }
     const weaponRow = (cat, it, i, list, change) => {
+      const damages = weaponDamages(it)
       if (!lineOpen(cat.key, i)) {
-        const r = withBonus(it)
-        return h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'),
-          h('span', { class: 'gs-weapon-right' }, weaponRoll(r) && h('span', { class: 'gs-weapon-dmg', title: it.bonusStat ? `Jet : dés + modificateur de ${statLabel(it.bonusStat)}` : 'Jet : dés + valeur fixe' }, weaponRoll(r)), ctx.onRollWeapon && weaponButton(it), pencil(cat, i, it))),
-        it.desc && h('p', {}, it.desc))
+        // Lecture : le nom, puis une ligne par type de dégâts (jet, type, bouton)
+        return h('li', {}, h('div', { class: 'gs-weapon-head' }, h('b', {}, it.name || 'Arme'), pencil(cat, i, it)),
+          h('ul', { class: 'gs-dmg-list' }, damages.map((dmg, k) => {
+            const roll = weaponRoll(withBonus(dmg))
+            return h('li', { class: 'gs-dmg-row' },
+              h('span', { class: `gs-weapon-dmg${roll ? '' : ' none'}`, title: dmg.bonusStat ? `Jet : dés + modificateur de ${statLabel(dmg.bonusStat)}` : 'Jet : dés + valeur fixe' }, roll || '—'),
+              h('span', { class: 'gs-dmg-type' }, dmg.type ?? ''),
+              ctx.onRollWeapon && weaponButton(it, k))
+          })),
+          it.desc && h('p', {}, it.desc))
       }
       const patch = (p) => change((l) => patchAt(l, i, p))
       const now = () => weaponsNow()[i]
-      return h('li', { class: 'gs-line-open', onchange: (e) => refreshOpenLine(e, () => now()?.dice) }, h('div', { class: 'gs-effect-edit' },
+      // fn reçoit les lignes de dégâts ACTUELLES de l'arme
+      const changeDamages = (fn) => change((l) => l.map((w, j) => (j === i ? withDamages(w, fn(weaponDamages(w))) : w)))
+      const removeDamage = (k) => { confirmingDamage = null; changeDamages((l) => l.filter((_, j) => j !== k)) }
+      // Une ligne de dégâts, dans l'ordre : dés, liste « valeur écrite ou modificateur », valeur, type de dégâts ; puis jet et retrait
+      const damageRow = (dmg, k) => {
+        const patchDamage = (p) => changeDamages((l) => patchAt(l, k, p))
+        const nth = damages.length > 1 ? ` (ligne ${k + 1})` : ''
+        return h('div', { class: 'gs-damage', 'data-damage': k },
+          h('div', { class: 'gs-damage-roll' },
+            diceInput(dmg.dice, (d) => patchDamage({ dice: d })),
+            h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
+            h('select', {
+              class: 'gs-bonus-source', 'aria-label': `Valeur ajoutée au résultat : valeur écrite ou modificateur${nth}`, title: 'Valeur ajoutée au résultat des dés',
+              onchange: (e) => patchDamage({ bonusStat: e.target.value }),
+            },
+            h('option', { value: '', selected: !dmg.bonusStat }, 'Valeur écrite'),
+            STATS.map((s) => h('option', { value: s.key, selected: s.key === dmg.bonusStat }, `Mod. ${s.label}`))),
+            dmg.bonusStat
+              ? h('span', { class: 'gs-bonus-auto', title: `Modificateur de ${statLabel(dmg.bonusStat)} : se met à jour tout seul` }, signed(resolveBonus(dmg)))
+              : h('input', {
+                type: 'number', class: 'num gs-bonus-input', value: num(dmg.bonus, 0), 'aria-label': `Valeur fixe ajoutée au résultat${nth}`, title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
+                onchange: (e) => patchDamage({ bonus: num(e.target.value, 0) }),
+              })),
+          h('div', { class: 'gs-damage-end' },
+            h('input', { class: 'gs-damage-type', value: dmg.type ?? '', placeholder: 'Type de dégâts', maxLength: 40, 'aria-label': `Type de dégâts${nth}`, onchange: (e) => patchDamage({ type: e.target.value.trim() }) }),
+            ctx.onRollWeapon && weaponButton(it, k, now),
+            damages.length > 1 && h('button', {
+              class: 'gs-line-btn gs-line-del', title: 'Retirer cette ligne de dégâts', 'aria-label': `Retirer la ligne de dégâts ${k + 1}`,
+              onclick: () => {
+                const cur = weaponDamages(now())[k]
+                if (!cur || emptyDamage(cur)) removeDamage(k)
+                else { confirmingDamage = `${i}#${k}`; render() }
+              },
+            }, '×')),
+          confirmingDamage === `${i}#${k}` && h('div', { class: 'gs-line-confirm', role: 'alertdialog', 'aria-label': 'Confirmer le retrait de la ligne de dégâts' },
+            h('span', {}, `Retirer la ligne de dégâts ${(dmg.type ?? '').trim() ? `« ${dmg.type} »` : weaponRoll(withBonus(dmg))} ?`),
+            h('button', { class: 'small', onclick: () => { confirmingDamage = null; render() } }, 'Annuler'),
+            h('button', { class: 'small danger', onclick: () => removeDamage(k) }, 'Oui, retirer')))
+      }
+      return h('li', { class: 'gs-line-open', onchange: (e) => refreshOpenLine(e, (k) => weaponDamages(now())[k]?.dice) }, h('div', { class: 'gs-effect-edit' },
         h('input', { value: it.name ?? '', placeholder: 'Nom de l’arme', 'aria-label': 'Nom de l’arme', onchange: (e) => patch({ name: e.target.value }) }),
         lineButtons(cat, i, list, change),
         lineConfirm(cat, i, list, change),
-        // Jet de dégâts : dés (nombre et faces, ex. 2d6) + valeur fixe (écrite, ou modificateur d'une caractéristique)
-        h('div', { class: 'gs-weapon-roll' },
-          diceInput(it.dice, (d) => patch({ dice: d })),
-          h('span', { class: 'muted', 'aria-hidden': 'true' }, '+'),
-          h('select', {
-            class: 'gs-bonus-source', 'aria-label': 'Valeur ajoutée au résultat : valeur écrite ou modificateur', title: 'Valeur ajoutée au résultat des dés',
-            onchange: (e) => patch({ bonusStat: e.target.value }),
-          },
-          h('option', { value: '', selected: !it.bonusStat }, 'Valeur écrite'),
-          STATS.map((s) => h('option', { value: s.key, selected: s.key === it.bonusStat }, `Mod. ${s.label}`))),
-          it.bonusStat
-            ? h('span', { class: 'gs-bonus-auto', title: `Modificateur de ${statLabel(it.bonusStat)} : se met à jour tout seul` }, signed(resolveBonus(it)))
-            : h('input', {
-              type: 'number', class: 'num gs-bonus-input', value: num(it.bonus, 0), 'aria-label': 'Valeur fixe ajoutée au résultat', title: 'Valeur fixe ajoutée au résultat des dés (peut être négative)',
-              onchange: (e) => patch({ bonus: num(e.target.value, 0) }),
-            }),
-          ctx.onRollWeapon && weaponButton(it, now)),
+        h('div', { class: 'gs-damages' }, damages.map(damageRow),
+          h('button', { class: 'small gs-add-damage', title: 'Ajouter un autre type de dégâts à cette arme', onclick: () => changeDamages((l) => [...l, newDamage()]) }, '+ Dégâts')),
         h('textarea', { rows: 2, value: it.desc ?? '', placeholder: 'Description (particularités…)', 'aria-label': 'Description de l’arme', onchange: (e) => patch({ desc: e.target.value }) })))
     }
     const weaponsGroup = (cat, list, change) => h('div', { class: 'gs-inv-group gs-inv-weapons' }, h('div', { class: 'gs-inv-head' }, h('h4', {}, cat.label)),
       list.length ? h('ul', {}, list.map((it, i) => weaponRow(cat, it, i, list, change))) : h('p', { class: 'muted' }, 'Aucune'),
-      mayEdit && addLine(cat, change, { name: '', desc: '', dice: '', bonus: 0, bonusStat: '' }))
+      mayEdit && addLine(cat, change, { name: '', desc: '', damages: [newDamage()] }))
 
     // Équipement, objets et sous-sections ajoutées : une ligne = un nom + une description
     const sections = live('inventory:sections', []) // [{ id, name }] sous-sections ajoutées, affichées dans la catégorie Objets

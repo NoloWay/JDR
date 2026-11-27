@@ -122,10 +122,11 @@ function colorOf(who) {
 const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text ?? '' })
 const hhmm = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
-// Jet de dégâts d'une arme (bouton de l'inventaire) : N dés à F faces + valeur fixe ; case « Jet secret » respectée
-function rollWeapon(label, count, faces, bonus) {
+// Jet de dégâts d'une ligne d'arme (bouton de l'inventaire) : N dés à F faces + valeur fixe ; case « Jet secret » respectée.
+// `type` : type de dégâts de la ligne (texte libre, facultatif), affiché avec l'arme dans la chronique
+function rollWeapon(label, count, faces, bonus, type = '') {
   const r = rollDamage(count, faces, bonus)
-  pushLog({ text: label, dmg: { count: r.count, faces: r.faces, bonus: r.bonus, values: r.values, total: r.total, raised: r.raised } })
+  pushLog({ text: label, dmg: { count: r.count, faces: r.faces, bonus: r.bonus, values: r.values, total: r.total, raised: r.raised, ...(type && { type }) } })
 }
 function renderLog() {
   const ul = $('log-list')
@@ -149,7 +150,9 @@ function renderLog() {
     if (dmg) {
       // Jet de dégâts : total en grand, détail des dés dessous
       const fixed = dmg.bonus ? ` ${dmg.bonus > 0 ? '+' : '−'} ${Math.abs(dmg.bonus)}` : ''
-      body.append(el('span', 'action', action), el('span', 'roll-value', String(dmg.total)))
+      const what = el('span', 'action', action) // l'arme, puis le type de dégâts
+      if (dmg.type) what.append(' ', el('span', 'dmg-type', dmg.type))
+      body.append(what, el('span', 'roll-value', String(dmg.total)))
       // raised : le résultat était inférieur à 1, il est remonté à 1 (règle de Grandal)
       li.append(body, el('div', 'roll-detail', `🎲 ${dmg.count}d${dmg.faces} [${dmg.values.join(' + ')}]${fixed}${dmg.raised ? ' → minimum 1' : ''}`))
     } else if (r) {
