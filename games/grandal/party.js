@@ -9,7 +9,7 @@
 // Les fiches elles-mêmes restent celles de src/sheets.js (doc.getMap('characters')), ouvertes avec sheets.open(id).
 import { h, liveRender } from '../../src/dom.js'
 import { CHARACTER_MIME } from '../../src/sheets.js'
-import { setupStatus, statusViews, RES } from './status.js'
+import { setupStatus, statusViews, stepOf, SHIFT_STEP, RES } from './status.js'
 
 export const SLOTS = 6
 const STATUS = [RES.hp, RES.mp] // HP (peuvent descendre jusqu'à −maximum) et MP : mêmes données que la fiche (status.js)
@@ -47,10 +47,10 @@ export function setupParty(ctx) {
   const slotOf = (id) => [...slots.entries()].filter(([, v]) => v === id).map(([k]) => Number(k))
 
   // ---------- Vignettes ----------
-  // Barre d'une vignette : − / + pour le MJ et le propriétaire (Maj : de 5 en 5) ; sous zéro, la barre des HP devient une barre sombre rayée
+  // Barre d'une vignette : − / + pour le MJ et le propriétaire (Maj + clic : de 10 en 10) ; sous zéro, la barre des HP devient une barre sombre rayée
   function bar(id, s, edit) {
     const { cur, max } = st.read(id, s)
-    const step = (d) => (e) => { e.stopPropagation(); st.setCur(id, s, cur + d * (e.shiftKey ? 5 : 1)) }
+    const step = (d) => (e) => { e.stopPropagation(); st.setCur(id, s, st.read(id, s).cur + d * stepOf(e)) }
     const hp = s === RES.hp
     const fill = (n) => (max > 0 ? Math.round((Math.max(n, 0) / max) * 100) : 0)
     return h('div', { class: `tile-stat stat-${s.key}`, title: `${s.title} : ${cur} / ${max}${hp ? ` (jusqu'à −${max})` : ''}` },
@@ -59,9 +59,9 @@ export function setupParty(ctx) {
         ? h('span', { class: 'tile-bar is-neg' }, h('span', { class: 'tile-neg' }, h('b', { style: `width:${max > 0 ? Math.round((Math.min(-cur, max) / max) * 100) : 100}%` })))
         : h('span', { class: 'tile-bar' }, h('i', { style: `width:${fill(cur)}%` })),
       h('span', { class: 'tile-stat-value' },
-        edit && h('button', { class: 'tile-pm', type: 'button', title: `${s.label} −1 (Maj : −5)`, 'aria-label': `${s.label} : −1`, onclick: step(-1) }, '−'),
+        edit && h('button', { class: 'tile-pm', type: 'button', title: `${s.label} −1 (Maj + clic : −${SHIFT_STEP})`, 'aria-label': `${s.label} : −1`, onclick: step(-1) }, '−'),
         h('span', { class: 'tile-stat-num' }, `${cur < 0 ? '−' + -cur : cur}/${max}`),
-        edit && h('button', { class: 'tile-pm', type: 'button', title: `${s.label} +1 (Maj : +5)`, 'aria-label': `${s.label} : +1`, onclick: step(1) }, '+')))
+        edit && h('button', { class: 'tile-pm', type: 'button', title: `${s.label} +1 (Maj + clic : +${SHIFT_STEP})`, 'aria-label': `${s.label} : +1`, onclick: step(1) }, '+')))
   }
 
   function tile(i) {

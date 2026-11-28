@@ -15,6 +15,8 @@ import { h } from '../../src/dom.js'
 
 export const SS_LEVELS = 10
 export const SPD_DEFAULT = 6
+export const SHIFT_STEP = 10 // Maj + clic sur un bouton − / + : de 10 en 10
+export const stepOf = (e) => (e.shiftKey ? SHIFT_STEP : 1)
 // Jauges : HP et MP (barre), EP et SP (pastilles) ; `key` = clé de la valeur courante, `max` = clé du maximum
 export const RES = {
   hp: { key: 'hp', max: 'hpMax', def: 10, label: 'HP', title: 'Points de vie' },
@@ -125,10 +127,11 @@ export function statusViews(st) {
       withBase && h('span', { class: 'st-spd-base', title: 'Vitesse de base' }, `Base ${base}`),
       canEdit
         ? h('span', { class: 'gs-eff-ctl' },
-          h('button', { class: 'gs-step', title: 'Diminuer la vitesse effective', 'aria-label': 'SPD : diminuer la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, st.spd(id).adj - 1) } }, '−'),
-          h('input', { type: 'number', class: 'num', value: eff, 'aria-label': 'SPD : vitesse effective', onchange: (e) => st.setSpdAdj(id, (Number.isFinite(Number(e.target.value)) && e.target.value !== '' ? Math.round(Number(e.target.value)) : eff) - base) }),
-          h('button', { class: 'gs-step', title: 'Augmenter la vitesse effective', 'aria-label': 'SPD : augmenter la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, st.spd(id).adj + 1) } }, '+'),
-          adj !== 0 && h('button', { class: 'gs-step gs-reset', title: `Revenir à la vitesse de base (${base})`, 'aria-label': 'SPD : revenir à la vitesse de base', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, 0) } }, '↺'))
+          h('button', { class: 'gs-step', title: `Diminuer la vitesse effective (Maj + clic : −${SHIFT_STEP})`, 'aria-label': 'SPD : diminuer la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, st.spd(id).adj - stepOf(e)) } }, '−'),
+          // Place réservée au nombre : le champ s'élargit à l'intérieur, les boutons − / + ne bougent pas
+          h('span', { class: 'gs-num-slot' }, h('input', { type: 'number', class: 'num', value: eff, 'aria-label': 'SPD : vitesse effective', onchange: (e) => st.setSpdAdj(id, (Number.isFinite(Number(e.target.value)) && e.target.value !== '' ? Math.round(Number(e.target.value)) : eff) - base) })),
+          h('button', { class: 'gs-step', title: `Augmenter la vitesse effective (Maj + clic : +${SHIFT_STEP})`, 'aria-label': 'SPD : augmenter la vitesse effective', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, st.spd(id).adj + stepOf(e)) } }, '+'),
+          h('button', { class: `gs-step gs-reset${adj ? '' : ' ghost'}`, disabled: !adj, title: `Revenir à la vitesse de base (${base})`, 'aria-label': 'SPD : revenir à la vitesse de base', onclick: (e) => { e.stopPropagation(); st.setSpdAdj(id, 0) } }, '↺'))
         : h('b', { class: 'st-spd-eff' }, eff))
   }
 

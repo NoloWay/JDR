@@ -28,7 +28,7 @@
 // et les observateurs : lecture seule) ; création, suppression et choix du joueur : MJ seul.
 import * as Y from 'yjs'
 import { h, liveRender } from '../../src/dom.js'
-import { setupStatus, statusViews } from './status.js'
+import { setupStatus, statusViews, stepOf, SHIFT_STEP } from './status.js'
 
 export const STATS = [
   { key: 'vitalite', label: 'Vitalité' },
@@ -497,10 +497,11 @@ export function setupGrandalSheets(ctx) {
         h('td', { class: `gs-value gs-eff${adj > 0 ? ' up' : adj < 0 ? ' down' : ''}`, title: adj ? `Base ${base} ${adj > 0 ? '+' : '−'} ${Math.abs(adj)}` : 'Valeur effective = valeur de base' },
           mayEdit
             ? h('div', { class: 'gs-eff-ctl' },
-              h('button', { class: 'gs-step', title: 'Diminuer la valeur effective', 'aria-label': `${label} : diminuer la valeur effective`, onclick: () => setAdj(key, statAdj(key) - 1) }, '−'),
-              h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur effective`, onchange: (e) => setAdj(key, num(e.target.value, value) - base) }),
-              h('button', { class: 'gs-step', title: 'Augmenter la valeur effective', 'aria-label': `${label} : augmenter la valeur effective`, onclick: () => setAdj(key, statAdj(key) + 1) }, '+'),
-              adj !== 0 && h('button', { class: 'gs-step gs-reset', title: `Revenir à la valeur de base (${base})`, 'aria-label': `${label} : revenir à la valeur de base`, onclick: () => setAdj(key, 0) }, '↺'))
+              h('button', { class: 'gs-step', title: `Diminuer la valeur effective (Maj + clic : −${SHIFT_STEP})`, 'aria-label': `${label} : diminuer la valeur effective`, onclick: (e) => setAdj(key, statAdj(key) - stepOf(e)) }, '−'),
+              // Place réservée au nombre et au « ↺ » : les boutons − / + ne bougent pas
+              h('span', { class: 'gs-num-slot' }, h('input', { type: 'number', class: 'num', value, 'aria-label': `${label} : valeur effective`, onchange: (e) => setAdj(key, num(e.target.value, value) - base) })),
+              h('button', { class: 'gs-step', title: `Augmenter la valeur effective (Maj + clic : +${SHIFT_STEP})`, 'aria-label': `${label} : augmenter la valeur effective`, onclick: (e) => setAdj(key, statAdj(key) + stepOf(e)) }, '+'),
+              h('button', { class: `gs-step gs-reset${adj ? '' : ' ghost'}`, disabled: !adj, title: `Revenir à la valeur de base (${base})`, 'aria-label': `${label} : revenir à la valeur de base`, onclick: () => setAdj(key, 0) }, '↺'))
             : value),
         h('td', { class: `gs-mod${mod > 0 ? ' pos' : mod < 0 ? ' neg' : ''}`, title: 'Modificateur = (valeur − 10) ÷ 2, arrondi à l’inférieur' }, signed(mod)),
         showRoll && h('td', { class: 'gs-roll' }, d20Button({

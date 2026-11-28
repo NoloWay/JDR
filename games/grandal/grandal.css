@@ -641,7 +641,8 @@ button.st-chip:hover { border-color: var(--accent); }
 /* − / + des barres de vignette */
 .tile-stat { grid-template-columns: 30px minmax(0, 1fr) auto; }
 .tile-stat-value { display: inline-flex; align-items: center; gap: 3px; }
-.tile-stat-num { min-width: 3.4ch; text-align: center; }
+/* Largeur fixe, assez pour « −999/999 » : les boutons − / + et la barre ne bougent pas quand le nombre change */
+.tile-stat-num { width: 8.2ch; white-space: nowrap; text-align: center; }
 .tile-pm { padding: 0; width: 18px; height: 18px; line-height: 1; font-size: 0.95rem; border-radius: 3px; color: var(--muted); }
 .tile-pm:hover { color: var(--text); border-color: var(--accent); }
 
@@ -790,3 +791,11 @@ input[type='number']::-webkit-inner-spin-button:hover {
 .gs-inv-sub .gs-inv-head { margin-bottom: 10px; }
 .gs-inv-sub h5 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 0.95rem; letter-spacing: 0.1em; color: var(--accent); }
 .gs-inv-sub > p { margin: 0 0 10px; font-size: 1rem; }
+
+/* Boutons − / + immobiles : le champ, qui s’élargit avec le nombre, reste au centre d’une place de largeur fixe (4 caractères ;
+   au-delà la place s’agrandit) ; « ↺ » garde sa place même sans écart à annuler */
+.gs-num-slot { display: inline-flex; justify-content: center; min-width: 80px; }
+.gs-num-slot input.num { user-select: text; }
+.gs-step { user-select: none; }
+.gs-reset.ghost { visibility: hidden; }
+.st-spd-base { min-width: 3.9em; }
